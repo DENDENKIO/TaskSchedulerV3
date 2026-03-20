@@ -21,6 +21,9 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val startTime = MutableStateFlow("")
     val endTime = MutableStateFlow("")
     val scheduleType = MutableStateFlow(ScheduleType.NORMAL)
+    val recurrencePattern = MutableStateFlow<RecurrencePattern?>(null)
+    val recurrenceDays = MutableStateFlow("")
+    val recurrenceEndDate = MutableStateFlow("")
     val priority = MutableStateFlow(1)
     val notifyEnabled = MutableStateFlow(true)
     val notifyMinutesBefore = MutableStateFlow(10)
@@ -37,6 +40,9 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             startTime.value = t.startTime ?: ""
             endTime.value = t.endTime ?: ""
             scheduleType.value = t.scheduleType
+            recurrencePattern.value = t.recurrencePattern
+            recurrenceDays.value = t.recurrenceDays ?: ""
+            recurrenceEndDate.value = t.recurrenceEndDate ?: ""
             priority.value = t.priority
             notifyEnabled.value = t.notifyEnabled
             notifyMinutesBefore.value = t.notifyMinutesBefore
@@ -53,6 +59,9 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             startTime = startTime.value.ifEmpty { null },
             endTime = endTime.value.ifEmpty { null },
             scheduleType = scheduleType.value,
+            recurrencePattern = recurrencePattern.value,
+            recurrenceDays = recurrenceDays.value.ifEmpty { null },
+            recurrenceEndDate = recurrenceEndDate.value.ifEmpty { null },
             priority = priority.value,
             notifyEnabled = notifyEnabled.value,
             notifyMinutesBefore = notifyMinutesBefore.value,
