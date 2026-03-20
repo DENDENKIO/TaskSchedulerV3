@@ -1,21 +1,38 @@
 package com.example.taskschedulerv3.ui.addtask
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.RecurrencePattern
 import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.navigation.Screen
 import com.example.taskschedulerv3.ui.components.TagSelector
+import com.example.taskschedulerv3.util.PhotoFileManager
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,6 +42,7 @@ fun AddTaskScreen(
     editTaskId: Int? = null,
     vm: AddTaskViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     val saveSuccess by vm.saveSuccess.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -49,12 +67,37 @@ fun AddTaskScreen(
     val recurrenceEndDate by vm.recurrenceEndDate.collectAsState()
     val selectedTagIds by vm.selectedTagIds.collectAsState()
     val allTags by vm.allTags.collectAsState()
+    val pendingPhotoPaths by vm.pendingPhotoPaths.collectAsState()
+    val existingPhotos by vm.existingPhotos.collectAsState()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
     var showStartTimePicker by remember { mutableStateOf(false) }
     var showEndTimePicker by remember { mutableStateOf(false) }
     var showNotifyMenu by remember { mutableStateOf(false) }
+    var showPhotoMenu by remember { mutableStateOf(false) }
+    var tempPhotoFile by remember { mutableStateOf<File?>(null) }
+
+    // Camera launcher
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) {
+            tempPhotoFile?.let { file -> vm.addPhotoFromCamera(file); tempPhotoFile = null }
+        }
+    }
+
+    // Gallery launcher
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { vm.addPhotoFromGallery(it) }
+    }
+
+    // Camera permission launcher
+    val cameraPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            val (uri, file) = PhotoFileManager.createTempPhotoUri(context)
+            tempPhotoFile = file
+            cameraLauncher.launch(uri)
+        }
+    }
 
     // DatePicker dialogs
     if (showDatePicker) {
@@ -93,7 +136,6 @@ fun AddTaskScreen(
         ) { DatePicker(state = datePickerState) }
     }
 
-    // TimePicker dialogs
     if (showStartTimePicker) {
         val timePickerState = rememberTimePickerState()
         AlertDialog(
@@ -255,7 +297,84 @@ fun AddTaskScreen(
             )
             HorizontalDivider()
 
+            // Photo attachment
+            Text("写真メモ", style = MaterialTheme.typography.labelLarge)
+            // Show existing photos (edit mode)
+            val allPhotoUris = existingPhotos.map { it.imagePath to true } +
+                               pendingPhotoPaths.map { it to false }
+            if (allPhotoUris.isNotEmpty()) {
+                val cols = 3
+                val rows = (allPhotoUris.size + cols - 1) / cols
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for (row in 0 until rows) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (col in 0 until cols) {
+                                val idx = row * cols + col
+                                if (idx < allPhotoUris.size) {
+                                    val (path, isExisting) = allPhotoUris[idx]
+                                    Box(modifier = Modifier.weight(1f).aspectRatio(1f)) {
+                                        AsyncImage(
+                                            model = PhotoFileManager.pathToUri(path),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp))
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                if (isExisting) {
+                                                    existingPhotos.find { it.imagePath == path }?.let { vm.removeExistingPhoto(it) }
+                                                } else {
+                                                    vm.removePendingPhoto(path)
+                                                }
+                                            },
+                                            modifier = Modifier.align(Alignment.TopEnd).size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Add photo buttons
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                        if (hasPerm) {
+                            val (uri, file) = PhotoFileManager.createTempPhotoUri(context)
+                            tempPhotoFile = file
+                            cameraLauncher.launch(uri)
+                        } else {
+                            cameraPermLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.CameraAlt, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("カメラ")
+                }
+                OutlinedButton(
+                    onClick = {
+                        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Photo, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("ギャラリー")
+                }
+            }
+
             // Notification
+            HorizontalDivider()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

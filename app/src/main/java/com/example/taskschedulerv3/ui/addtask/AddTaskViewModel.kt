@@ -1,20 +1,25 @@
 package com.example.taskschedulerv3.ui.addtask
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.*
+import com.example.taskschedulerv3.data.repository.PhotoMemoRepository
 import com.example.taskschedulerv3.data.repository.TagRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
 import com.example.taskschedulerv3.notification.AlarmScheduler
+import com.example.taskschedulerv3.util.PhotoFileManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.File
 
 class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
     private val repo = TaskRepository(db.taskDao())
     private val tagRepo = TagRepository(db.tagDao())
+    private val photoRepo = PhotoMemoRepository(db.photoMemoDao())
     private val crossRefDao = db.taskTagCrossRefDao()
 
     val title = MutableStateFlow("")
@@ -38,6 +43,14 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val allTags: StateFlow<List<Tag>> = tagRepo.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Pending photo paths to save on task save
+    private val _pendingPhotoPaths = MutableStateFlow<List<String>>(emptyList())
+    val pendingPhotoPaths: StateFlow<List<String>> = _pendingPhotoPaths.asStateFlow()
+
+    // Existing photos (edit mode)
+    private val _existingPhotos = MutableStateFlow<List<PhotoMemo>>(emptyList())
+    val existingPhotos: StateFlow<List<PhotoMemo>> = _existingPhotos.asStateFlow()
+
     private val _saveSuccess = MutableStateFlow(false)
     val saveSuccess: StateFlow<Boolean> = _saveSuccess.asStateFlow()
 
@@ -57,10 +70,33 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             notifyEnabled.value = t.notifyEnabled
             notifyMinutesBefore.value = t.notifyMinutesBefore
         }
-        // Load existing tag associations
         crossRefDao.getTagsByTaskId(taskId).first().let { tags ->
             selectedTagIds.value = tags.map { it.id }.toSet()
         }
+        photoRepo.getByTaskId(taskId).first().let { photos ->
+            _existingPhotos.value = photos
+        }
+    }
+
+    fun addPhotoFromCamera(tempFile: File) = viewModelScope.launch {
+        val path = PhotoFileManager.saveResizedPhotoFromFile(getApplication(), tempFile) ?: return@launch
+        _pendingPhotoPaths.value = _pendingPhotoPaths.value + path
+    }
+
+    fun addPhotoFromGallery(uri: Uri) = viewModelScope.launch {
+        val path = PhotoFileManager.saveResizedPhoto(getApplication(), uri) ?: return@launch
+        _pendingPhotoPaths.value = _pendingPhotoPaths.value + path
+    }
+
+    fun removePendingPhoto(path: String) {
+        PhotoFileManager.deletePhoto(path)
+        _pendingPhotoPaths.value = _pendingPhotoPaths.value - path
+    }
+
+    fun removeExistingPhoto(photo: PhotoMemo) = viewModelScope.launch {
+        photoRepo.delete(photo)
+        PhotoFileManager.deletePhoto(photo.imagePath)
+        _existingPhotos.value = _existingPhotos.value - photo
     }
 
     fun save(editId: Int? = null) = viewModelScope.launch {
@@ -90,7 +126,14 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             crossRefDao.insert(TaskTagCrossRef(taskId = finalId, tagId = tagId))
         }
 
-        // Schedule (or cancel) notification alarm
+        // Save pending photos
+        val dateStr = startDate.value
+        _pendingPhotoPaths.value.forEach { path ->
+            photoRepo.insert(PhotoMemo(taskId = finalId, date = dateStr, imagePath = path))
+        }
+        _pendingPhotoPaths.value = emptyList()
+
+        // Schedule alarm
         val savedTask = task.copy(id = finalId)
         AlarmScheduler.scheduleForTask(getApplication(), savedTask)
 

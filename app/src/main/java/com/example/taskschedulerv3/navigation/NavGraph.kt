@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import com.example.taskschedulerv3.ui.calendar.CalendarScreen
 import com.example.taskschedulerv3.ui.schedulelist.ScheduleListScreen
 import com.example.taskschedulerv3.ui.photo.PhotoListScreen
+import com.example.taskschedulerv3.ui.photo.PhotoDetailScreen
 import com.example.taskschedulerv3.ui.settings.SettingsScreen
 import com.example.taskschedulerv3.ui.addtask.AddTaskScreen
 import com.example.taskschedulerv3.ui.taskdetail.TaskDetailScreen
@@ -29,6 +30,9 @@ sealed class Screen(val route: String) {
     }
     object Trash : Screen("trash")
     object TagManage : Screen("tag_manage")
+    object PhotoDetail : Screen("photo_detail/{photoId}") {
+        fun createRoute(photoId: Int) = "photo_detail/$photoId"
+    }
 }
 
 @Composable
@@ -63,6 +67,10 @@ fun AppNavGraph(navController: NavHostController) {
         }
         composable(Screen.TagManage.route) {
             TagManageScreen(navController = navController)
+        }
+        composable("photo_detail/{photoId}") { backStack ->
+            val photoId = backStack.arguments?.getString("photoId")?.toIntOrNull() ?: return@composable
+            PhotoDetailScreen(navController = navController, photoId = photoId)
         }
     }
 }
