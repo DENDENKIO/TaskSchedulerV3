@@ -17,4 +17,7 @@ interface TaskCompletionDao {
 
     @Query("SELECT COUNT(*) > 0 FROM task_completions WHERE taskId = :taskId AND completedDate = :date")
     suspend fun isCompleted(taskId: Int, date: String): Boolean
+
+    @Query("SELECT * FROM task_completions")
+    fun getAll(): kotlinx.coroutines.flow.Flow<List<TaskCompletion>>
 }

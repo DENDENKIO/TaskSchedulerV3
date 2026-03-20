@@ -6,30 +6,43 @@ import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.data.repository.TaskRepository
+import com.example.taskschedulerv3.notification.AlarmScheduler
+import com.example.taskschedulerv3.util.PhotoFileManager
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class TrashViewModel(app: Application) : AndroidViewModel(app) {
-    private val repo = TaskRepository(AppDatabase.getInstance(app).taskDao())
+    private val db = AppDatabase.getInstance(app)
+    private val repo = TaskRepository(db.taskDao())
 
     val deletedTasks: StateFlow<List<Task>> = repo.getDeleted()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun restore(task: Task) = viewModelScope.launch { repo.restore(task.id) }
+    fun restore(task: Task) = viewModelScope.launch {
+        repo.restore(task.id)
+    }
 
     fun permanentDelete(task: Task) = viewModelScope.launch {
-        // Hard delete by updating isDeleted and then purging
-        repo.purgeOldDeleted()
+        // Cancel any pending alarm
+        AlarmScheduler.cancel(getApplication(), task.id)
+        // Delete associated photos from filesystem
+        db.photoMemoDao().getByTaskId(task.id).first().forEach { photo ->
+            PhotoFileManager.deletePhoto(photo.imagePath)
+        }
+        // Physical delete (CASCADE handles TaskTagCrossRef, TaskRelation, TaskCompletion, PhotoMemo)
+        db.taskDao().delete(task)
     }
 
     fun purgeAll() = viewModelScope.launch {
         deletedTasks.value.forEach { task ->
-            // Force deletedAt to past time so purge removes them
-            repo.softDelete(task.id) // re-softDelete to refresh deletedAt if needed
+            AlarmScheduler.cancel(getApplication(), task.id)
+            db.photoMemoDao().getByTaskId(task.id).first().forEach { photo ->
+                PhotoFileManager.deletePhoto(photo.imagePath)
+            }
+            db.taskDao().delete(task)
         }
-        // Purge all older than 0ms (immediate purge)
-        AppDatabase.getInstance(getApplication()).taskDao().purgeOldDeleted(System.currentTimeMillis() + 1000)
     }
 }

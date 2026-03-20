@@ -32,4 +32,7 @@ interface TaskRelationDao {
 
     @Query("DELETE FROM task_relations WHERE taskId1 = :taskId OR taskId2 = :taskId")
     suspend fun deleteAllForTask(taskId: Int)
+
+    @Query("SELECT * FROM task_relations")
+    suspend fun getAllRelations(): List<TaskRelation>
 }

@@ -66,7 +66,7 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
             }
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // Search bar
             OutlinedTextField(
                 value = searchQuery,
@@ -178,26 +178,39 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
             HorizontalDivider()
 
             // Task list
-            LazyColumn {
-                val grouped = displayedTasks.groupBy { it.startDate }
-                grouped.forEach { (date, dateTasks) ->
-                    item {
-                        Text(
-                            text = date,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
-                    items(dateTasks, key = { it.id }) { task ->
-                        SwipeToDismissTaskItem(
-                            task = task,
-                            onDelete = { vm.softDelete(task) },
-                            onComplete = { vm.toggleComplete(task) },
-                            onClick = { navController.navigate(Screen.TaskDetail.createRoute(task.id)) }
-                        )
+            if (displayedTasks.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "タスクがありません",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    val grouped = displayedTasks.groupBy { it.startDate }
+                    grouped.forEach { (date, dateTasks) ->
+                        item {
+                            Text(
+                                text = date,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                        }
+                        items(dateTasks, key = { it.id }) { task ->
+                            SwipeToDismissTaskItem(
+                                task = task,
+                                onDelete = { vm.softDelete(task) },
+                                onComplete = { vm.toggleComplete(task) },
+                                onClick = { navController.navigate(Screen.TaskDetail.createRoute(task.id)) }
+                            )
+                        }
                     }
                 }
             }
