@@ -1,4 +1,4 @@
-package com.example.taskschedulerv3.ui.taskdetail
+package com.example.taskschedulerv3.ui.relation
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -10,33 +10,29 @@ import com.example.taskschedulerv3.data.repository.TaskRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
+class RelatedTasksViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
     private val repo = TaskRepository(db.taskDao())
     private val relationRepo = TaskRelationRepository(db.taskRelationDao())
 
-    private val _taskId = MutableStateFlow<Int?>(null)
+    private val _originTaskId = MutableStateFlow<Int?>(null)
 
-    val task: StateFlow<Task?> = _taskId
+    val originTask: StateFlow<Task?> = _originTaskId
         .filterNotNull()
-        .flatMapLatest { id ->
-            flow { emit(repo.getById(id)) }
-        }
+        .flatMapLatest { id -> flow { emit(repo.getById(id)) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Related task ids (reactive)
-    val relatedTaskIds: StateFlow<List<Int>> = _taskId
+    private val relatedIds: StateFlow<List<Int>> = _originTaskId
         .filterNotNull()
         .flatMapLatest { id -> relationRepo.getRelatedTaskIds(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // All tasks to resolve related ids → Task objects
     private val allTasks: StateFlow<List<Task>> = repo.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val relatedTasks: StateFlow<List<Task>> = combine(relatedTaskIds, allTasks) { ids, tasks ->
+    val relatedTasks: StateFlow<List<Task>> = combine(relatedIds, allTasks) { ids, tasks ->
         tasks.filter { it.id in ids }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun loadTask(id: Int) { _taskId.value = id }
+    fun loadForTask(taskId: Int) { _originTaskId.value = taskId }
 }

@@ -29,6 +29,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.RecurrencePattern
 import com.example.taskschedulerv3.data.model.ScheduleType
+import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.navigation.Screen
 import com.example.taskschedulerv3.ui.components.TagSelector
 import com.example.taskschedulerv3.util.PhotoFileManager
@@ -69,6 +70,8 @@ fun AddTaskScreen(
     val allTags by vm.allTags.collectAsState()
     val pendingPhotoPaths by vm.pendingPhotoPaths.collectAsState()
     val existingPhotos by vm.existingPhotos.collectAsState()
+    val relatedTasks by vm.relatedTasks.collectAsState()
+    val allTasksForPicker by vm.allTasks.collectAsState()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
@@ -76,6 +79,7 @@ fun AddTaskScreen(
     var showEndTimePicker by remember { mutableStateOf(false) }
     var showNotifyMenu by remember { mutableStateOf(false) }
     var showPhotoMenu by remember { mutableStateOf(false) }
+    var showRelationDialog by remember { mutableStateOf(false) }
     var tempPhotoFile by remember { mutableStateOf<File?>(null) }
 
     // Camera launcher
@@ -297,6 +301,56 @@ fun AddTaskScreen(
             )
             HorizontalDivider()
 
+            // Related tasks section
+            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("関連予定", style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = { showRelationDialog = true }) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("追加")
+                }
+            }
+            if (relatedTasks.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    relatedTasks.forEach { relTask ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(relTask.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                Text(
+                                    "${relTask.startDate}${relTask.startTime?.let { " $it" } ?: ""}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                            IconButton(onClick = { vm.removeRelatedTask(relTask.id) }) {
+                                Icon(Icons.Default.Close, null, modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Relation picker dialog
+            if (showRelationDialog) {
+                RelationPickerDialog(
+                    allTasks = allTasksForPicker.filter { it.id != editTaskId && it.id !in relatedTasks.map { t -> t.id } },
+                    onConfirm = { selectedIds ->
+                        selectedIds.forEach { vm.addRelatedTask(it) }
+                        showRelationDialog = false
+                    },
+                    onDismiss = { showRelationDialog = false }
+                )
+            }
+
             // Photo attachment
             Text("写真メモ", style = MaterialTheme.typography.labelLarge)
             // Show existing photos (edit mode)
@@ -408,4 +462,70 @@ fun AddTaskScreen(
             ) { Text("保存") }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RelationPickerDialog(
+    allTasks: List<Task>,
+    onConfirm: (Set<Int>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val selected = remember { mutableStateOf(setOf<Int>()) }
+
+    val filtered = if (searchQuery.isBlank()) allTasks
+    else allTasks.filter { it.title.contains(searchQuery, ignoreCase = true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("関連予定を選択") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("タスク名で検索") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.heightIn(max = 320.dp)
+                ) {
+                    androidx.compose.foundation.lazy.items(filtered) { task ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = task.id in selected.value,
+                                onCheckedChange = { checked ->
+                                    selected.value = if (checked) selected.value + task.id
+                                                    else selected.value - task.id
+                                }
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(task.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                Text(
+                                    "${task.startDate}${task.startTime?.let { " $it" } ?: ""}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(selected.value) },
+                enabled = selected.value.isNotEmpty()
+            ) { Text("追加 (${selected.value.size})") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("キャンセル") }
+        }
+    )
 }

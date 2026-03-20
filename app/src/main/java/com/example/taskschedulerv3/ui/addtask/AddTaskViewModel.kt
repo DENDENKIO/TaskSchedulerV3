@@ -8,6 +8,7 @@ import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.*
 import com.example.taskschedulerv3.data.repository.PhotoMemoRepository
 import com.example.taskschedulerv3.data.repository.TagRepository
+import com.example.taskschedulerv3.data.repository.TaskRelationRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
 import com.example.taskschedulerv3.notification.AlarmScheduler
 import com.example.taskschedulerv3.util.PhotoFileManager
@@ -20,6 +21,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = TaskRepository(db.taskDao())
     private val tagRepo = TagRepository(db.tagDao())
     private val photoRepo = PhotoMemoRepository(db.photoMemoDao())
+    private val relationRepo = TaskRelationRepository(db.taskRelationDao())
     private val crossRefDao = db.taskTagCrossRefDao()
 
     val title = MutableStateFlow("")
@@ -36,25 +38,43 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val notifyEnabled = MutableStateFlow(true)
     val notifyMinutesBefore = MutableStateFlow(10)
 
-    // Tag selection: set of deepest-level tag ids
+    // Tag selection
     val selectedTagIds = MutableStateFlow<Set<Int>>(emptySet())
-
-    // All tags for TagSelector
     val allTags: StateFlow<List<Tag>> = tagRepo.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Pending photo paths to save on task save
+    // All tasks for relation picker (excluding self)
+    val allTasks: StateFlow<List<Task>> = repo.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Related task ids: existing (saved) + newly added - newly removed
+    private val _existingRelatedIds = MutableStateFlow<Set<Int>>(emptySet())
+    private val _addedRelatedIds = MutableStateFlow<Set<Int>>(emptySet())
+    private val _removedRelatedIds = MutableStateFlow<Set<Int>>(emptySet())
+
+    val relatedTaskIds: StateFlow<Set<Int>> = combine(
+        _existingRelatedIds, _addedRelatedIds, _removedRelatedIds
+    ) { existing, added, removed ->
+        (existing + added) - removed
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    val relatedTasks: StateFlow<List<Task>> = combine(relatedTaskIds, allTasks) { ids, tasks ->
+        tasks.filter { it.id in ids }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Photo attachments
     private val _pendingPhotoPaths = MutableStateFlow<List<String>>(emptyList())
     val pendingPhotoPaths: StateFlow<List<String>> = _pendingPhotoPaths.asStateFlow()
-
-    // Existing photos (edit mode)
     private val _existingPhotos = MutableStateFlow<List<PhotoMemo>>(emptyList())
     val existingPhotos: StateFlow<List<PhotoMemo>> = _existingPhotos.asStateFlow()
 
     private val _saveSuccess = MutableStateFlow(false)
     val saveSuccess: StateFlow<Boolean> = _saveSuccess.asStateFlow()
 
+    private var _editId: Int? = null
+
     fun loadTask(taskId: Int) = viewModelScope.launch {
+        _editId = taskId
         repo.getById(taskId)?.let { t ->
             title.value = t.title
             description.value = t.description ?: ""
@@ -76,6 +96,23 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         photoRepo.getByTaskId(taskId).first().let { photos ->
             _existingPhotos.value = photos
         }
+        // Load existing relation ids
+        val existingIds = relationRepo.getRelationsForTask(taskId).map { rel ->
+            if (rel.taskId1 == taskId) rel.taskId2 else rel.taskId1
+        }.toSet()
+        _existingRelatedIds.value = existingIds
+    }
+
+    fun addRelatedTask(taskId: Int) {
+        _addedRelatedIds.value = _addedRelatedIds.value + taskId
+        _removedRelatedIds.value = _removedRelatedIds.value - taskId
+    }
+
+    fun removeRelatedTask(taskId: Int) {
+        if (taskId in _existingRelatedIds.value) {
+            _removedRelatedIds.value = _removedRelatedIds.value + taskId
+        }
+        _addedRelatedIds.value = _addedRelatedIds.value - taskId
     }
 
     fun addPhotoFromCamera(tempFile: File) = viewModelScope.launch {
@@ -120,22 +157,29 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         val taskId = repo.insert(task).toInt()
         val finalId = if (editId != null) editId else taskId
 
-        // Re-save tag associations
+        // Tags
         crossRefDao.deleteByTaskId(finalId)
         selectedTagIds.value.forEach { tagId ->
             crossRefDao.insert(TaskTagCrossRef(taskId = finalId, tagId = tagId))
         }
 
-        // Save pending photos
+        // Photos
         val dateStr = startDate.value
         _pendingPhotoPaths.value.forEach { path ->
             photoRepo.insert(PhotoMemo(taskId = finalId, date = dateStr, imagePath = path))
         }
         _pendingPhotoPaths.value = emptyList()
 
-        // Schedule alarm
-        val savedTask = task.copy(id = finalId)
-        AlarmScheduler.scheduleForTask(getApplication(), savedTask)
+        // Relations: insert new, delete removed
+        _addedRelatedIds.value.forEach { relId ->
+            relationRepo.insert(finalId, relId)
+        }
+        _removedRelatedIds.value.forEach { relId ->
+            relationRepo.deleteRelation(finalId, relId)
+        }
+
+        // Alarm
+        AlarmScheduler.scheduleForTask(getApplication(), task.copy(id = finalId))
 
         _saveSuccess.value = true
     }

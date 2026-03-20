@@ -13,6 +13,7 @@ import com.example.taskschedulerv3.ui.addtask.AddTaskScreen
 import com.example.taskschedulerv3.ui.taskdetail.TaskDetailScreen
 import com.example.taskschedulerv3.ui.trash.TrashScreen
 import com.example.taskschedulerv3.ui.tag.TagManageScreen
+import com.example.taskschedulerv3.ui.relation.RelatedTasksScreen
 
 sealed class Screen(val route: String) {
     object Calendar : Screen("calendar")
@@ -32,6 +33,9 @@ sealed class Screen(val route: String) {
     object TagManage : Screen("tag_manage")
     object PhotoDetail : Screen("photo_detail/{photoId}") {
         fun createRoute(photoId: Int) = "photo_detail/$photoId"
+    }
+    object RelatedTasks : Screen("related_tasks/{taskId}") {
+        fun createRoute(taskId: Int) = "related_tasks/$taskId"
     }
 }
 
@@ -71,6 +75,10 @@ fun AppNavGraph(navController: NavHostController) {
         composable("photo_detail/{photoId}") { backStack ->
             val photoId = backStack.arguments?.getString("photoId")?.toIntOrNull() ?: return@composable
             PhotoDetailScreen(navController = navController, photoId = photoId)
+        }
+        composable("related_tasks/{taskId}") { backStack ->
+            val relTaskId = backStack.arguments?.getString("taskId")?.toIntOrNull() ?: return@composable
+            RelatedTasksScreen(navController = navController, taskId = relTaskId)
         }
     }
 }
