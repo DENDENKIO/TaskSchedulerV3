@@ -8,8 +8,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +23,8 @@ import androidx.navigation.NavController
 import com.example.taskschedulerv3.data.model.*
 import com.example.taskschedulerv3.navigation.Screen
 import com.example.taskschedulerv3.ui.calendar.PriorityBadge
+import com.example.taskschedulerv3.ui.components.buildPath
+import com.example.taskschedulerv3.ui.tag.parseColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,7 +33,27 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
     val searchQuery by vm.searchQuery.collectAsState()
     val sortOption by vm.sortOption.collectAsState()
     val filterOption by vm.filterOption.collectAsState()
+    val allTags by vm.allTags.collectAsState()
+    val filterTagId by vm.filterTagId.collectAsState()
+    val tagFilteredTaskIds by vm.tagFilteredTaskIds.collectAsState()
+
     var showSortMenu by remember { mutableStateOf(false) }
+    var showTagFilterDialog by remember { mutableStateOf(false) }
+
+    // Apply tag filter in UI
+    val displayedTasks = if (tagFilteredTaskIds != null) {
+        tasks.filter { it.id in tagFilteredTaskIds!! }
+    } else tasks
+
+    // Tag filter dialog
+    if (showTagFilterDialog) {
+        TagFilterDialog(
+            allTags = allTags,
+            selectedTagId = filterTagId,
+            onSelect = { vm.setTagFilter(it); showTagFilterDialog = false },
+            onDismiss = { showTagFilterDialog = false }
+        )
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("スケジュール一覧") }) },
@@ -57,54 +78,45 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Completion filter
                 item {
                     FilterChip(
                         selected = filterOption.completionStatus == CompletionFilter.INCOMPLETE,
-                        onClick = {
-                            vm.setCompletionFilter(
-                                if (filterOption.completionStatus == CompletionFilter.INCOMPLETE) CompletionFilter.ALL
-                                else CompletionFilter.INCOMPLETE
-                            )
-                        },
+                        onClick = { vm.setCompletionFilter(if (filterOption.completionStatus == CompletionFilter.INCOMPLETE) CompletionFilter.ALL else CompletionFilter.INCOMPLETE) },
                         label = { Text("未完了") }
                     )
                 }
                 item {
                     FilterChip(
                         selected = filterOption.completionStatus == CompletionFilter.COMPLETE,
-                        onClick = {
-                            vm.setCompletionFilter(
-                                if (filterOption.completionStatus == CompletionFilter.COMPLETE) CompletionFilter.ALL
-                                else CompletionFilter.COMPLETE
-                            )
-                        },
+                        onClick = { vm.setCompletionFilter(if (filterOption.completionStatus == CompletionFilter.COMPLETE) CompletionFilter.ALL else CompletionFilter.COMPLETE) },
                         label = { Text("完了済") }
                     )
                 }
-                // Priority filters
                 listOf(0 to "高", 1 to "中", 2 to "低").forEach { (p, label) ->
                     item {
-                        FilterChip(
-                            selected = p in filterOption.priorities,
-                            onClick = { vm.togglePriorityFilter(p) },
-                            label = { Text("優先度:$label") }
-                        )
+                        FilterChip(selected = p in filterOption.priorities, onClick = { vm.togglePriorityFilter(p) }, label = { Text("優先:$label") })
                     }
                 }
-                // Schedule type filters
                 listOf(ScheduleType.NORMAL to "通常", ScheduleType.PERIOD to "期間", ScheduleType.RECURRING to "繰返").forEach { (t, label) ->
                     item {
-                        FilterChip(
-                            selected = t in filterOption.scheduleTypes,
-                            onClick = { vm.toggleScheduleTypeFilter(t) },
-                            label = { Text(label) }
-                        )
+                        FilterChip(selected = t in filterOption.scheduleTypes, onClick = { vm.toggleScheduleTypeFilter(t) }, label = { Text(label) })
                     }
                 }
-                // Clear filters
+                // Tag filter chip
                 item {
-                    if (filterOption != FilterOption()) {
+                    val tagLabel = filterTagId?.let { id ->
+                        allTags.find { it.id == id }?.let { tag -> buildPath(tag, allTags) }
+                    }
+                    FilterChip(
+                        selected = filterTagId != null,
+                        onClick = { showTagFilterDialog = true },
+                        label = { Text(tagLabel ?: "タグ") },
+                        leadingIcon = { Icon(Icons.Default.Label, null, modifier = Modifier.size(16.dp)) }
+                    )
+                }
+                // Clear
+                item {
+                    if (filterOption != FilterOption() || filterTagId != null) {
                         AssistChip(onClick = { vm.clearFilters() }, label = { Text("クリア") })
                     }
                 }
@@ -116,13 +128,10 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("${tasks.size}件", style = MaterialTheme.typography.labelMedium)
+                Text("${displayedTasks.size}件", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.weight(1f))
                 Box {
-                    TextButton(
-                        onClick = { showSortMenu = true },
-                        contentPadding = PaddingValues(horizontal = 8.dp)
-                    ) {
+                    TextButton(onClick = { showSortMenu = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Icon(Icons.Default.Sort, null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(
@@ -137,14 +146,10 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
                     }
                     DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                         listOf(
-                            SortOption.DATE_ASC to "日付（昇順）",
-                            SortOption.DATE_DESC to "日付（降順）",
-                            SortOption.PRIORITY_HIGH to "優先度（高→低）",
-                            SortOption.PRIORITY_LOW to "優先度（低→高）",
-                            SortOption.TITLE_ASC to "タスク名（昇順）",
-                            SortOption.TITLE_DESC to "タスク名（降順）",
-                            SortOption.CREATED_DESC to "作成日（新しい順）",
-                            SortOption.CREATED_ASC to "作成日（古い順）"
+                            SortOption.DATE_ASC to "日付（昇順）", SortOption.DATE_DESC to "日付（降順）",
+                            SortOption.PRIORITY_HIGH to "優先度（高→低）", SortOption.PRIORITY_LOW to "優先度（低→高）",
+                            SortOption.TITLE_ASC to "タスク名（昇順）", SortOption.TITLE_DESC to "タスク名（降順）",
+                            SortOption.CREATED_DESC to "作成日（新しい順）", SortOption.CREATED_ASC to "作成日（古い順）"
                         ).forEach { (opt, label) ->
                             DropdownMenuItem(
                                 text = { Text(label, style = if (sortOption == opt) MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyMedium) },
@@ -157,18 +162,16 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
 
             HorizontalDivider()
 
-            // Task list with swipe-to-dismiss
+            // Task list
             LazyColumn {
-                // Group by date
-                val grouped = tasks.groupBy { it.startDate }
+                val grouped = displayedTasks.groupBy { it.startDate }
                 grouped.forEach { (date, dateTasks) ->
                     item {
                         Text(
                             text = date,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
                         )
@@ -185,6 +188,82 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
             }
         }
     }
+}
+
+@Composable
+fun TagFilterDialog(
+    allTags: List<Tag>,
+    selectedTagId: Int?,
+    onSelect: (Int?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val largeTags = allTags.filter { it.level == 1 }.sortedBy { it.sortOrder }
+    var expandedId by remember { mutableStateOf<Int?>(null) }
+    var expandedMediumId by remember { mutableStateOf<Int?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("タグで絞り込む") },
+        text = {
+            LazyColumn {
+                item {
+                    TextButton(onClick = { onSelect(null) }) { Text("すべて表示") }
+                }
+                largeTags.forEach { large ->
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = selectedTagId == large.id, onClick = { onSelect(large.id) })
+                            Text(large.name, modifier = Modifier.weight(1f))
+                            if (allTags.any { it.parentId == large.id }) {
+                                TextButton(onClick = {
+                                    expandedId = if (expandedId == large.id) null else large.id
+                                }) { Text(if (expandedId == large.id) "折りたたむ" else "展開") }
+                            }
+                        }
+                    }
+                    if (expandedId == large.id) {
+                        val mediums = allTags.filter { it.parentId == large.id }
+                        mediums.forEach { medium ->
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(selected = selectedTagId == medium.id, onClick = { onSelect(medium.id) })
+                                    Text(medium.name, modifier = Modifier.weight(1f))
+                                    if (allTags.any { it.parentId == medium.id }) {
+                                        TextButton(onClick = {
+                                            expandedMediumId = if (expandedMediumId == medium.id) null else medium.id
+                                        }) { Text(if (expandedMediumId == medium.id) "折りたたむ" else "展開") }
+                                    }
+                                }
+                            }
+                            if (expandedMediumId == medium.id) {
+                                val smalls = allTags.filter { it.parentId == medium.id }
+                                smalls.forEach { small ->
+                                    item {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(start = 32.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RadioButton(selected = selectedTagId == small.id, onClick = { onSelect(small.id) })
+                                            Text(small.name)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("閉じる") }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -214,8 +293,7 @@ fun SwipeToDismissTaskItem(
                     SwipeToDismissBoxValue.EndToStart -> Color(0xFFE53935)
                     SwipeToDismissBoxValue.StartToEnd -> Color(0xFF43A047)
                     else -> Color.Transparent
-                },
-                label = "swipe_bg"
+                }, label = "swipe_bg"
             )
             Box(
                 modifier = Modifier.fillMaxSize().background(color).padding(horizontal = 20.dp),
@@ -240,9 +318,7 @@ fun SwipeToDismissTaskItem(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val priorityColor = when (task.priority) {
-                    0 -> Color(0xFFE53935); 2 -> Color(0xFF43A047); else -> Color(0xFFFB8C00)
-                }
+                val priorityColor = when (task.priority) { 0 -> Color(0xFFE53935); 2 -> Color(0xFF43A047); else -> Color(0xFFFB8C00) }
                 Box(modifier = Modifier.width(4.dp).height(44.dp).background(priorityColor, MaterialTheme.shapes.extraSmall))
                 Spacer(Modifier.width(8.dp))
                 Checkbox(checked = task.isCompleted, onCheckedChange = { onComplete() })
@@ -255,15 +331,8 @@ fun SwipeToDismissTaskItem(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         task.startTime?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
-                        val typeLabel = when (task.scheduleType) {
-                            ScheduleType.PERIOD -> "期間"
-                            ScheduleType.RECURRING -> "繰返"
-                            else -> null
-                        }
-                        typeLabel?.let {
-                            Text(it, style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary)
-                        }
+                        val typeLabel = when (task.scheduleType) { ScheduleType.PERIOD -> "期間"; ScheduleType.RECURRING -> "繰返"; else -> null }
+                        typeLabel?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
                     }
                 }
                 PriorityBadge(task.priority)

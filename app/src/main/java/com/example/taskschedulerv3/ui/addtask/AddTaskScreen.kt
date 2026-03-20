@@ -14,6 +14,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.taskschedulerv3.data.model.RecurrencePattern
 import com.example.taskschedulerv3.data.model.ScheduleType
+import com.example.taskschedulerv3.navigation.Screen
+import com.example.taskschedulerv3.ui.components.TagSelector
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +47,8 @@ fun AddTaskScreen(
     val notifyMinutesBefore by vm.notifyMinutesBefore.collectAsState()
     val recurrencePattern by vm.recurrencePattern.collectAsState()
     val recurrenceEndDate by vm.recurrenceEndDate.collectAsState()
+    val selectedTagIds by vm.selectedTagIds.collectAsState()
+    val allTags by vm.allTags.collectAsState()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
@@ -125,9 +129,7 @@ fun AddTaskScreen(
             TopAppBar(
                 title = { Text(if (editTaskId == null) "タスク追加" else "タスク編集") },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, null)
-                    }
+                    IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) }
                 }
             )
         }
@@ -164,7 +166,7 @@ fun AddTaskScreen(
                 label = { Text("メモ（任意）") }, modifier = Modifier.fillMaxWidth(), maxLines = 4
             )
 
-            // Date/time fields based on schedule type
+            // Date/time by schedule type
             when (scheduleType) {
                 ScheduleType.NORMAL -> {
                     OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
@@ -196,33 +198,24 @@ fun AddTaskScreen(
                     }
                 }
                 ScheduleType.RECURRING -> {
-                    // Recurrence pattern
                     Text("繰り返しパターン", style = MaterialTheme.typography.labelLarge)
                     var expandPattern by remember { mutableStateOf(false) }
                     ExposedDropdownMenuBox(expanded = expandPattern, onExpandedChange = { expandPattern = it }) {
                         OutlinedTextField(
                             value = when (recurrencePattern) {
-                                RecurrencePattern.DAILY -> "毎日"
-                                RecurrencePattern.WEEKLY -> "毎週"
-                                RecurrencePattern.BIWEEKLY -> "隔週"
-                                RecurrencePattern.MONTHLY_DATE -> "毎月（日付指定）"
-                                RecurrencePattern.MONTHLY_WEEK -> "毎月（曜日指定）"
-                                RecurrencePattern.YEARLY -> "毎年"
+                                RecurrencePattern.DAILY -> "毎日"; RecurrencePattern.WEEKLY -> "毎週"
+                                RecurrencePattern.BIWEEKLY -> "隔週"; RecurrencePattern.MONTHLY_DATE -> "毎月（日付指定）"
+                                RecurrencePattern.MONTHLY_WEEK -> "毎月（曜日指定）"; RecurrencePattern.YEARLY -> "毎年"
                                 null -> "選択してください"
                             },
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("パターン") },
+                            onValueChange = {}, readOnly = true, label = { Text("パターン") },
                             modifier = Modifier.menuAnchor().fillMaxWidth()
                         )
                         ExposedDropdownMenu(expanded = expandPattern, onDismissRequest = { expandPattern = false }) {
                             listOf(
-                                RecurrencePattern.DAILY to "毎日",
-                                RecurrencePattern.WEEKLY to "毎週",
-                                RecurrencePattern.BIWEEKLY to "隔週",
-                                RecurrencePattern.MONTHLY_DATE to "毎月（日付指定）",
-                                RecurrencePattern.MONTHLY_WEEK to "毎月（曜日指定）",
-                                RecurrencePattern.YEARLY to "毎年"
+                                RecurrencePattern.DAILY to "毎日", RecurrencePattern.WEEKLY to "毎週",
+                                RecurrencePattern.BIWEEKLY to "隔週", RecurrencePattern.MONTHLY_DATE to "毎月（日付指定）",
+                                RecurrencePattern.MONTHLY_WEEK to "毎月（曜日指定）", RecurrencePattern.YEARLY to "毎年"
                             ).forEach { (p, label) ->
                                 DropdownMenuItem(text = { Text(label) }, onClick = { vm.recurrencePattern.value = p; expandPattern = false })
                             }
@@ -232,7 +225,7 @@ fun AddTaskScreen(
                         Text(if (startDate.isBlank()) "開始日を選択 *" else "開始日: $startDate")
                     }
                     OutlinedButton(onClick = { showEndDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (recurrenceEndDate.isBlank()) "繰り返し終了日（無期限も可）" else "終了日: $recurrenceEndDate")
+                        Text(if (recurrenceEndDate.isBlank()) "繰り返し終了日（未設定=無期限）" else "終了日: $recurrenceEndDate")
                     }
                     OutlinedButton(onClick = { showStartTimePicker = true }, modifier = Modifier.fillMaxWidth()) {
                         Text(if (startTime.isBlank()) "時刻を選択" else "時刻: $startTime")
@@ -252,6 +245,16 @@ fun AddTaskScreen(
                 }
             }
 
+            // Tag selector
+            HorizontalDivider()
+            TagSelector(
+                allTags = allTags,
+                selectedTagIds = selectedTagIds,
+                onTagsChanged = { vm.selectedTagIds.value = it },
+                onNavigateToTagManage = { navController.navigate(Screen.TagManage.route) }
+            )
+            HorizontalDivider()
+
             // Notification
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -264,13 +267,11 @@ fun AddTaskScreen(
             if (notifyEnabled) {
                 Box {
                     OutlinedButton(onClick = { showNotifyMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            when (notifyMinutesBefore) {
-                                0 -> "時刻ちょうど"; 5 -> "5分前"; 10 -> "10分前"
-                                30 -> "30分前"; 60 -> "1時間前"; 1440 -> "1日前"
-                                else -> "${notifyMinutesBefore}分前"
-                            }
-                        )
+                        Text(when (notifyMinutesBefore) {
+                            0 -> "時刻ちょうど"; 5 -> "5分前"; 10 -> "10分前"
+                            30 -> "30分前"; 60 -> "1時間前"; 1440 -> "1日前"
+                            else -> "${notifyMinutesBefore}分前"
+                        })
                     }
                     DropdownMenu(expanded = showNotifyMenu, onDismissRequest = { showNotifyMenu = false }) {
                         listOf(0 to "時刻ちょうど", 5 to "5分前", 10 to "10分前", 30 to "30分前", 60 to "1時間前", 1440 to "1日前").forEach { (min, label) ->
