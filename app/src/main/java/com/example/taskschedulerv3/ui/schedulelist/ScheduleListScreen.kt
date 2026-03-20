@@ -8,7 +8,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -97,10 +100,22 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
                         FilterChip(selected = p in filterOption.priorities, onClick = { vm.togglePriorityFilter(p) }, label = { Text("優先:$label") })
                     }
                 }
-                listOf(ScheduleType.NORMAL to "通常", ScheduleType.PERIOD to "期間", ScheduleType.RECURRING to "繰返").forEach { (t, label) ->
-                    item {
-                        FilterChip(selected = t in filterOption.scheduleTypes, onClick = { vm.toggleScheduleTypeFilter(t) }, label = { Text(label) })
-                    }
+                // Schedule type filter chips with icons
+                item {
+                    FilterChip(
+                        selected = ScheduleType.PERIOD in filterOption.scheduleTypes,
+                        onClick = { vm.toggleScheduleTypeFilter(ScheduleType.PERIOD) },
+                        label = { Text("期間") },
+                        leadingIcon = { Icon(Icons.Default.DateRange, null, modifier = Modifier.size(14.dp)) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = ScheduleType.RECURRING in filterOption.scheduleTypes,
+                        onClick = { vm.toggleScheduleTypeFilter(ScheduleType.RECURRING) },
+                        label = { Text("繰り返し") },
+                        leadingIcon = { Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp)) }
+                    )
                 }
                 // Tag filter chip
                 item {
@@ -323,16 +338,61 @@ fun SwipeToDismissTaskItem(
                 Spacer(Modifier.width(8.dp))
                 Checkbox(checked = task.isCompleted, onCheckedChange = { onComplete() })
                 Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-                    Text(
-                        text = task.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
-                        maxLines = 1
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // Schedule type icon
+                        when (task.scheduleType) {
+                            ScheduleType.PERIOD -> Icon(
+                                Icons.Default.DateRange, contentDescription = "期間",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            ScheduleType.RECURRING -> Icon(
+                                Icons.Default.Refresh, contentDescription = "繰り返し",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                            else -> {}
+                        }
+                        Text(
+                            text = task.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
+                            maxLines = 1
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         task.startTime?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
-                        val typeLabel = when (task.scheduleType) { ScheduleType.PERIOD -> "期間"; ScheduleType.RECURRING -> "繰返"; else -> null }
-                        typeLabel?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
+                        // Period: show end date
+                        if (task.scheduleType == ScheduleType.PERIOD && task.endDate != null) {
+                            Text(
+                                "〜 ${task.endDate}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        // Recurring: show pattern name
+                        if (task.scheduleType == ScheduleType.RECURRING && task.recurrencePattern != null) {
+                            Text(
+                                when (task.recurrencePattern) {
+                                    RecurrencePattern.DAILY -> "毎日"
+                                    RecurrencePattern.WEEKLY -> "毎週"
+                                    RecurrencePattern.BIWEEKLY -> "隔週"
+                                    RecurrencePattern.MONTHLY_DATE -> "毎月（日付）"
+                                    RecurrencePattern.MONTHLY_WEEK -> "毎月（曜日）"
+                                    RecurrencePattern.YEARLY -> "毎年"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        // Notification icon
+                        if (task.notifyEnabled) {
+                            Icon(
+                                Icons.Default.Notifications, contentDescription = "通知",
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                        }
                     }
                 }
                 PriorityBadge(task.priority)

@@ -3,11 +3,12 @@ package com.example.taskschedulerv3.ui.calendar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +19,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.navigation.Screen
 import com.example.taskschedulerv3.util.DateUtils
@@ -31,6 +33,7 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
     val currentMonth by vm.currentMonth.collectAsState()
     val tasksForDate by vm.tasksForSelectedDate.collectAsState()
     val allTasks by vm.allTasks.collectAsState()
+    val allTaskDates by vm.allTaskDates.collectAsState()
     val summary by vm.todaySummary.collectAsState()
 
     Scaffold(
@@ -61,7 +64,7 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
             when (viewMode) {
                 CalendarViewMode.YEAR -> YearView(
                     year = currentYear,
-                    taskDates = allTasks.map { it.startDate }.toSet(),
+                    taskDates = allTaskDates,
                     onMonthSelected = { month ->
                         vm.selectDate("%04d-%02d-01".format(currentYear, month))
                         vm.setViewMode(CalendarViewMode.MONTH)
@@ -74,7 +77,7 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
                         year = currentYear,
                         month = currentMonth,
                         selectedDate = selectedDate,
-                        tasksWithDates = allTasks.map { it.startDate }.toSet(),
+                        tasksWithDates = allTaskDates,
                         onDateSelected = { vm.selectDate(it) },
                         onPreviousMonth = { vm.previousMonth() },
                         onNextMonth = { vm.nextMonth() }
@@ -184,12 +187,28 @@ fun TaskRow(
             modifier = Modifier.weight(1f).padding(start = 4.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = task.title,
-                style = MaterialTheme.typography.bodyMedium,
-                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
-                maxLines = 1
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Schedule type icon
+                when (task.scheduleType) {
+                    ScheduleType.PERIOD -> Icon(
+                        Icons.Default.DateRange, contentDescription = "期間",
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    ScheduleType.RECURRING -> Icon(
+                        Icons.Default.Refresh, contentDescription = "繰り返し",
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.secondary
+                    )
+                    else -> {}
+                }
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
+                    maxLines = 1
+                )
+            }
             task.startTime?.let {
                 Text(
                     text = "${it}${task.endTime?.let { e -> " 〜 $e" } ?: ""}",

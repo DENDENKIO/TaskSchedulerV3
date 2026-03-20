@@ -7,6 +7,7 @@ import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.*
 import com.example.taskschedulerv3.data.repository.TagRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
+import com.example.taskschedulerv3.notification.AlarmScheduler
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -88,6 +89,10 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         selectedTagIds.value.forEach { tagId ->
             crossRefDao.insert(TaskTagCrossRef(taskId = finalId, tagId = tagId))
         }
+
+        // Schedule (or cancel) notification alarm
+        val savedTask = task.copy(id = finalId)
+        AlarmScheduler.scheduleForTask(getApplication(), savedTask)
 
         _saveSuccess.value = true
     }

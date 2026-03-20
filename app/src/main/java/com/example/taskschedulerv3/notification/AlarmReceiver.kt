@@ -3,14 +3,37 @@ package com.example.taskschedulerv3.notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.example.taskschedulerv3.data.db.AppDatabase
+import com.example.taskschedulerv3.data.model.ScheduleType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val taskId = intent.getIntExtra("taskId", -1)
-        val title = intent.getStringExtra("title") ?: "タスクリマインダー"
-        val message = intent.getStringExtra("message") ?: "予定の時間です"
-        if (taskId != -1) {
-            NotificationHelper.showNotification(context, taskId, title, message)
+        if (taskId == -1) return
+
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = AppDatabase.getInstance(context)
+                val task = db.taskDao().getById(taskId)
+
+                if (task != null && !task.isDeleted) {
+                    val minutesBefore = task.notifyMinutesBefore
+                    val message = if (minutesBefore > 0) "${task.title}の${minutesBefore}分前です"
+                                  else "${task.title}の時間です"
+                    NotificationHelper.showNotification(context, taskId, task.title, message)
+
+                    // For RECURRING tasks: schedule next alarm after this occurrence
+                    if (task.scheduleType == ScheduleType.RECURRING && task.notifyEnabled) {
+                        AlarmScheduler.scheduleForTask(context, task)
+                    }
+                }
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }
