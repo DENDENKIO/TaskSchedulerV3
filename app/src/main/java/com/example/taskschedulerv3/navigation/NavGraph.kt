@@ -1,6 +1,7 @@
 package com.example.taskschedulerv3.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -40,8 +41,8 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun AppNavGraph(navController: NavHostController) {
-    NavHost(navController = navController, startDestination = Screen.Calendar.route) {
+fun AppNavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
+    NavHost(navController = navController, startDestination = Screen.Calendar.route, modifier = modifier) {
         composable(Screen.Calendar.route) {
             CalendarScreen(navController = navController)
         }

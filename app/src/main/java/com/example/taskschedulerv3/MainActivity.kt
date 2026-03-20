@@ -15,7 +15,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -27,7 +26,6 @@ import com.example.taskschedulerv3.notification.NotificationHelper
 import com.example.taskschedulerv3.ui.theme.TaskSchedulerV3Theme
 import com.example.taskschedulerv3.util.ThemeMode
 import com.example.taskschedulerv3.util.ThemePreferences
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -48,8 +46,8 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            val context = LocalContext.current
-            val themeMode by ThemePreferences.getThemeMode(context)
+            // Use applicationContext to match SettingsViewModel's DataStore instance
+            val themeMode by ThemePreferences.getThemeMode(applicationContext)
                 .collectAsState(initial = ThemeMode.SYSTEM)
 
             val isDark = when (themeMode) {
@@ -102,6 +100,9 @@ fun TaskSchedulerApp() {
             }
         }
     ) { padding ->
-        AppNavGraph(navController = navController)
+        AppNavGraph(
+            navController = navController,
+            modifier = Modifier.padding(padding)
+        )
     }
 }
