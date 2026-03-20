@@ -21,7 +21,7 @@ object ExportImportManager {
             val db = AppDatabase.getInstance(context)
             val tasks = db.taskDao().getAll().first()
             val tags = db.tagDao().getAll().first()
-            val crossRefs = db.taskTagCrossRefDao().getAll().first()
+            val crossRefs = db.taskTagCrossRefDao().getAll()
             val relations = db.taskRelationDao().getAllRelations()
             val photoMemos = db.photoMemoDao().getAll().first()
             val completions = db.taskCompletionDao().getAll().first()
