@@ -88,7 +88,10 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
                 CalendarViewMode.WEEK -> WeekView(
                     selectedDate = selectedDate,
                     tasks = allTasks,
-                    onDateSelected = { vm.selectDate(it) },
+                    onDateSelected = { date ->
+                        vm.selectDate(date)
+                        navController.navigate(Screen.ScheduleList.createRoute(date))
+                    },
                     onPreviousWeek = { vm.previousWeek() },
                     onNextWeek = { vm.nextWeek() }
                 )
