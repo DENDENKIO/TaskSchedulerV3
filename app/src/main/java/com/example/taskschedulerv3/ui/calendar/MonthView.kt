@@ -95,7 +95,10 @@ private fun MonthDayRowItem(
     ) {
         repeat(lineCount) { index ->
             val lineText = row.taskLines.getOrNull(index)
-            val zebraColor = if (index % 2 == 0) Color(0xFFF5F5F5) else Color.Transparent
+            val zebraColor = if (index % 2 == 0)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            else
+                Color.Transparent
             val textColor = if (lineText == null) {
                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
             } else {
