@@ -85,28 +85,28 @@ class PhotoListViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val displayPhotos: StateFlow<List<PhotoMemo>> = combine(
+    // Step1: tag + missing + dateRange を combine (5引数以内)
+    private val filteredByTagAndMissing: Flow<List<PhotoMemo>> = combine(
         basePhotos, tagFilteredPhotoIds, missingFilter,
-        filterDateFrom, filterDateTo, photoTagMapFlow
-    ) { photos, tagIds, missing, dateFrom, dateTo, tagMap ->
+        filterDateFrom, filterDateTo
+    ) { photos, tagIds, missing, dateFrom, dateTo ->
         var result = photos
-        // Tag filter
         if (tagIds != null) result = result.filter { it.id in tagIds }
-        // Missing filter
-        result = when (missing) {
+        if (dateFrom.isNotEmpty()) result = result.filter { it.date >= dateFrom }
+        if (dateTo.isNotEmpty())   result = result.filter { it.date <= dateTo }
+        result to missing  // ペアで次に渡す
+    }
+
+    // Step2: missingFilter(NO_TAG)に photoTagMapFlow を組み合わせる
+    val displayPhotos: StateFlow<List<PhotoMemo>> = combine(
+        filteredByTagAndMissing, photoTagMapFlow
+    ) { (result, missing), tagMap ->
+        when (missing) {
             PhotoMissingFilter.NO_TITLE -> result.filter { it.title.isNullOrBlank() }
             PhotoMissingFilter.NO_MEMO  -> result.filter { it.memo.isNullOrBlank() }
             PhotoMissingFilter.NO_TAG   -> result.filter { (tagMap[it.id] ?: emptySet()).isEmpty() }
             PhotoMissingFilter.NONE     -> result
         }
-        // Date range filter
-        if (dateFrom.isNotEmpty()) {
-            result = result.filter { it.date >= dateFrom }
-        }
-        if (dateTo.isNotEmpty()) {
-            result = result.filter { it.date <= dateTo }
-        }
-        result
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── 1週間ごとグループ ──
