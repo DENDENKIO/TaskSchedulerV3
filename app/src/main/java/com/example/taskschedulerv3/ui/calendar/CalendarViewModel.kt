@@ -29,15 +29,8 @@ data class MonthDayRow(
     val isToday: Boolean,
     val isHoliday: Boolean,       // 日曜=true
     val isSaturday: Boolean,
-    /** 大カテゴリtag → (中カテゴリtag? → (小カテゴリtag? → count)) の集約チップリスト */
-    val tagChips: List<TagChip>
-)
-
-/** 月ビューの1タグチップ: 短縮ラベル + 件数 + 色 */
-data class TagChip(
-    val label: String,   // 例: "仕本配" or "仕本" or "仕"
-    val count: Int,
-    val color: String    // #RRGGBB
+    /** 予定表示行: "大-中-小：タイトル" */
+    val taskLines: List<String>
 )
 
 class CalendarViewModel(app: Application) : AndroidViewModel(app) {
@@ -127,86 +120,15 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
 
-            // ── タグチップ構築ロジック ──
-            // キー: "大名・中名" (小カテゴリをまとめる単位) → Map<小名, count>
-            // 色は大カテゴリ層の色を使用
-            data class TagGroupKey(val largeName: String, val midName: String?, val color: String)
-            // 大-中 グループ → (小名 → count)
-            val groupMap = mutableMapOf<TagGroupKey, MutableMap<String?, Int>>()
-            var noTagCount = 0
+            val sortedTasks = dayTasks.sortedWith(
+                compareBy<Task> { it.startTime ?: "99:99" }.thenBy { it.title }
+            )
 
-            dayTasks.forEach { task ->
+            val taskLines = sortedTasks.map { task ->
                 val taskTagIds = tagMap[task.id] ?: emptySet()
-                if (taskTagIds.isEmpty()) {
-                    noTagCount++
-                    return@forEach
-                }
-
-                val taskTags = taskTagIds.mapNotNull { tagById[it] }
-                val smallTags = taskTags.filter { it.level == 3 }
-                val midTags   = taskTags.filter { it.level == 2 }
-                val largeTags = taskTags.filter { it.level == 1 }
-
-                val leafTags = when {
-                    smallTags.isNotEmpty() -> smallTags
-                    midTags.isNotEmpty()   -> midTags
-                    else                   -> largeTags
-                }
-
-                leafTags.forEach { leaf ->
-                    val small = if (leaf.level == 3) leaf else null
-                    val mid = when {
-                        leaf.level == 3 -> tagById[leaf.parentId]
-                        leaf.level == 2 -> leaf
-                        else -> null
-                    }
-                    val large = when {
-                        leaf.level == 3 -> tagById[leaf.parentId]?.let { tagById[it.parentId] }
-                        leaf.level == 2 -> tagById[leaf.parentId]
-                        else -> leaf
-                    }
-                    val color = large?.color ?: mid?.color ?: leaf.color
-                    val groupKey = TagGroupKey(
-                        largeName = large?.name ?: mid?.name ?: leaf.name,
-                        midName   = if (large != null) mid?.name else null,
-                        color     = color
-                    )
-                    val subKey = small?.name  // null → 小カテゴリなし
-                    val sub = groupMap.getOrPut(groupKey) { mutableMapOf() }
-                    sub[subKey] = (sub[subKey] ?: 0) + 1
-                }
+                val tagLabel = buildTagLabel(taskTagIds, tagById)
+                "$tagLabel：${task.title}"
             }
-
-            // グループごとに TagChip を生成
-            // 例: 大=仕事,中=本部 → label="仕事-本部-配劆2/指示3"
-            val chips = mutableListOf<TagChip>()
-
-            groupMap.forEach { (key, subMap) ->
-                val prefix = buildString {
-                    append(key.largeName)
-                    key.midName?.let { append("-").append(it) }
-                }
-                val subParts = subMap.entries.joinToString("/") { (smallName, cnt) ->
-                    if (smallName != null) "-${smallName}${cnt}" else cnt.toString()
-                }
-                // 小カテゴリがある場合: "仕事-本部-配劆2/指示3"
-                // 小カテゴリなし: "仕事-本部N"
-                val hasSmall = subMap.keys.any { it != null }
-                val label = if (hasSmall) {
-                    val parts = subMap.entries
-                        .sortedBy { it.key }
-                        .joinToString("/") { (sName, cnt) ->
-                            if (sName != null) "-${sName}${cnt}" else cnt.toString()
-                        }
-                    "$prefix$parts"
-                } else {
-                    "$prefix${subMap.values.sum()}"
-                }
-                val total = subMap.values.sum()
-                chips.add(TagChip(label, total, key.color))
-            }
-
-            if (noTagCount > 0) chips.add(TagChip("タグ無し$noTagCount", noTagCount, "#9E9E9E"))
 
             rows.add(MonthDayRow(
                 dateStr = dateStr,
@@ -215,10 +137,31 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                 isToday = dateStr == todayStr,
                 isHoliday = dow == java.time.DayOfWeek.SUNDAY,
                 isSaturday = dow == java.time.DayOfWeek.SATURDAY,
-                tagChips = chips
+                taskLines = taskLines
             ))
         }
         return rows
+    }
+
+    private fun buildTagLabel(taskTagIds: Set<Int>, tagById: Map<Int, Tag>): String {
+        if (taskTagIds.isEmpty()) return "タグ無し"
+        val tags = taskTagIds.mapNotNull { tagById[it] }
+        if (tags.isEmpty()) return "タグ無し"
+        val maxLevel = tags.maxOf { it.level }
+        val preferred = tags.filter { it.level == maxLevel }
+            .minByOrNull { it.sortOrder } ?: tags.first()
+        return buildTagPath(preferred, tagById)
+    }
+
+    private fun buildTagPath(tag: Tag, tagById: Map<Int, Tag>): String {
+        val names = mutableListOf(tag.name)
+        var current = tag
+        while (current.parentId != null) {
+            val parent = tagById[current.parentId] ?: break
+            names.add(0, parent.name)
+            current = parent
+        }
+        return names.joinToString("-")
     }
 
     // --- Expanded task dates (NORMAL + PERIOD + RECURRING) for dot/bar display ---
