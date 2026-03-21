@@ -85,27 +85,26 @@ class PhotoListViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Step1: tag + missing + dateRange を combine (5引数以内)
-    private val filteredByTagAndMissing: Flow<List<PhotoMemo>> = combine(
-        basePhotos, tagFilteredPhotoIds, missingFilter,
-        filterDateFrom, filterDateTo
-    ) { photos, tagIds, missing, dateFrom, dateTo ->
+    // Step1: tag + dateRange フィルタ (missingFilter はStep2で適用)
+    private val preFilteredPhotos: StateFlow<List<PhotoMemo>> = combine(
+        basePhotos, tagFilteredPhotoIds, filterDateFrom, filterDateTo
+    ) { photos, tagIds, dateFrom, dateTo ->
         var result = photos
         if (tagIds != null) result = result.filter { it.id in tagIds }
         if (dateFrom.isNotEmpty()) result = result.filter { it.date >= dateFrom }
         if (dateTo.isNotEmpty())   result = result.filter { it.date <= dateTo }
-        result to missing  // ペアで次に渡す
-    }
+        result
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Step2: missingFilter(NO_TAG)に photoTagMapFlow を組み合わせる
+    // Step2: missingFilter + photoTagMap を適用
     val displayPhotos: StateFlow<List<PhotoMemo>> = combine(
-        filteredByTagAndMissing, photoTagMapFlow
-    ) { (result, missing), tagMap ->
+        preFilteredPhotos, missingFilter, photoTagMapFlow
+    ) { photos, missing, tagMap ->
         when (missing) {
-            PhotoMissingFilter.NO_TITLE -> result.filter { it.title.isNullOrBlank() }
-            PhotoMissingFilter.NO_MEMO  -> result.filter { it.memo.isNullOrBlank() }
-            PhotoMissingFilter.NO_TAG   -> result.filter { (tagMap[it.id] ?: emptySet()).isEmpty() }
-            PhotoMissingFilter.NONE     -> result
+            PhotoMissingFilter.NO_TITLE -> photos.filter { it.title.isNullOrBlank() }
+            PhotoMissingFilter.NO_MEMO  -> photos.filter { it.memo.isNullOrBlank() }
+            PhotoMissingFilter.NO_TAG   -> photos.filter { (tagMap[it.id] ?: emptySet()).isEmpty() }
+            PhotoMissingFilter.NONE     -> photos
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
