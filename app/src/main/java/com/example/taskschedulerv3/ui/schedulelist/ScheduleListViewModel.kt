@@ -21,6 +21,9 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     val filterOption = MutableStateFlow(FilterOption())
     /** 月ビューから遷移したときの日付フィルタ (yyyy-MM-dd、空文字=フィルタなし) */
     val filterDate = MutableStateFlow("")
+    /** 期間日付検索 */
+    val filterDateFrom = MutableStateFlow("")
+    val filterDateTo   = MutableStateFlow("")
 
     // All tags for tag-filter dialog
     val allTags: StateFlow<List<Tag>> = tagRepo.getAll()

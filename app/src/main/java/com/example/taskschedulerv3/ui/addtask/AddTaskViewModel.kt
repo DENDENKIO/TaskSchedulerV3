@@ -163,10 +163,20 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             crossRefDao.insert(TaskTagCrossRef(taskId = finalId, tagId = tagId))
         }
 
-        // Photos
+        // Photos — inherit task title, description, tags
         val dateStr = startDate.value
+        val taskTitle = title.value.trim().ifEmpty { null }
+        val taskDesc  = description.value.trim().ifEmpty { null }
+        val photoTagDao = db.photoTagCrossRefDao()
         _pendingPhotoPaths.value.forEach { path ->
-            photoRepo.insert(PhotoMemo(taskId = finalId, date = dateStr, imagePath = path))
+            val photoId = photoRepo.insert(
+                PhotoMemo(taskId = finalId, date = dateStr, imagePath = path,
+                    title = taskTitle, memo = taskDesc)
+            ).toInt()
+            // Copy task tags to photo
+            selectedTagIds.value.forEach { tagId ->
+                photoTagDao.insert(PhotoTagCrossRef(photoId = photoId, tagId = tagId))
+            }
         }
         _pendingPhotoPaths.value = emptyList()
 
