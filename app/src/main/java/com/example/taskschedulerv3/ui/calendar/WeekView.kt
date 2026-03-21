@@ -119,7 +119,9 @@ fun WeekView(
         if (allDayTasks.isNotEmpty()) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 Box(modifier = Modifier.width(40.dp)) {
-                    Text("終日", fontSize = 9.sp, modifier = Modifier.align(Alignment.Center))
+                    Text("終日", fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.align(Alignment.Center))
                 }
                 weekDays.forEach { day ->
                     val dateStr = DateUtils.format(day)
@@ -135,6 +137,7 @@ fun WeekView(
                                     text = task.title,
                                     fontSize = 9.sp,
                                     maxLines = 1,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.padding(horizontal = 2.dp)
                                 )
                             }
