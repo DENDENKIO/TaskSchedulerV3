@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 /**
  * MonthView — 月初〜月末を行リスト形式で表示。
  * 各行: 日付（曜日）＋ 予定（タグ+タイトル）
+ * 日付ごとに交互背景色（ゼブラストライプ）で視認性を向上。
  */
 @Composable
 fun MonthView(
@@ -57,13 +58,13 @@ fun MonthView(
 
         // ── 日付行リスト ──
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(dayRows, key = { it.dateStr }) { row ->
+            itemsIndexed(dayRows, key = { _, row -> row.dateStr }) { index, row ->
                 MonthDayRowItem(
                     row = row,
                     isSelected = row.dateStr == selectedDate,
+                    isEvenRow = index % 2 == 0,
                     onClick = { onDateSelected(row.dateStr) }
                 )
-                HorizontalDivider(thickness = 0.5.dp)
             }
         }
     }
@@ -73,18 +74,24 @@ fun MonthView(
 private fun MonthDayRowItem(
     row: MonthDayRow,
     isSelected: Boolean,
+    isEvenRow: Boolean,
     onClick: () -> Unit
 ) {
+    // 日付の色（日曜=赤、土曜=青、平日=テーマ色）
     val dateColor = when {
         row.isHoliday  -> Color(0xFFE53935)
         row.isSaturday -> Color(0xFF1E88E5)
         else           -> MaterialTheme.colorScheme.onSurface
     }
+
+    // 行の背景色（選択 > 今日 > ゼブラストライプ）
     val bgColor = when {
         isSelected -> MaterialTheme.colorScheme.primaryContainer
-        row.isToday -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-        else        -> Color.Transparent
+        row.isToday -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+        isEvenRow  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        else       -> Color.Transparent
     }
+
     val lineCount = if (row.taskLines.isEmpty()) 1 else row.taskLines.size
 
     Column(
@@ -95,10 +102,6 @@ private fun MonthDayRowItem(
     ) {
         repeat(lineCount) { index ->
             val lineText = row.taskLines.getOrNull(index)
-            val zebraColor = if (index % 2 == 0)
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            else
-                Color.Transparent
             val textColor = if (lineText == null) {
                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
             } else {
@@ -107,10 +110,10 @@ private fun MonthDayRowItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(zebraColor)
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 日付+曜日は最初の行だけ表示
                 if (index == 0) {
                     Column(
                         modifier = Modifier.width(44.dp),
@@ -134,6 +137,16 @@ private fun MonthDayRowItem(
 
                 Spacer(Modifier.width(8.dp))
 
+                // 予定テキスト（複数行あれば行番号表示）
+                if (lineCount > 1 && lineText != null) {
+                    Text(
+                        text = "${index + 1}.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                        modifier = Modifier.width(16.dp)
+                    )
+                }
+
                 Text(
                     text = lineText ?: "—",
                     style = MaterialTheme.typography.bodySmall,
@@ -142,5 +155,11 @@ private fun MonthDayRowItem(
                 )
             }
         }
+
+        // 日付間の薄い区切り線
+        HorizontalDivider(
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
     }
 }
