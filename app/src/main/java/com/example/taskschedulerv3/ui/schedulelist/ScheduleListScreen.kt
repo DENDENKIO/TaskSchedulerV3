@@ -52,14 +52,32 @@ fun ScheduleListScreen(
     val filterTagId by vm.filterTagId.collectAsState()
     val tagFilteredTaskIds by vm.tagFilteredTaskIds.collectAsState()
     val filterDate by vm.filterDate.collectAsState()
+    val filterDateFrom by vm.filterDateFrom.collectAsState()
+    val filterDateTo   by vm.filterDateTo.collectAsState()
 
     var showSortMenu by remember { mutableStateOf(false) }
     var showTagFilterDialog by remember { mutableStateOf(false) }
+    var showDateRangeDialog by remember { mutableStateOf(false) }
+
+    if (showDateRangeDialog) {
+        ScheduleDateRangeDialog(
+            initialFrom = filterDateFrom,
+            initialTo   = filterDateTo,
+            onConfirm = { from, to ->
+                vm.filterDateFrom.value = from
+                vm.filterDateTo.value   = to
+                showDateRangeDialog = false
+            },
+            onDismiss = { showDateRangeDialog = false }
+        )
+    }
 
     // Apply tag filter + date filter in UI
     val displayedTasks = run {
         var result = if (tagFilteredTaskIds != null) tasks.filter { it.id in tagFilteredTaskIds!! } else tasks
         if (filterDate.isNotEmpty()) result = result.filter { it.startDate == filterDate }
+        if (filterDateFrom.isNotEmpty()) result = result.filter { it.startDate >= filterDateFrom }
+        if (filterDateTo.isNotEmpty())   result = result.filter { it.startDate <= filterDateTo }
         result
     }
 
@@ -180,6 +198,24 @@ fun ScheduleListScreen(
             ) {
                 Text("${displayedTasks.size}件", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.weight(1f))
+                // 期間日付検索ボタン
+                TextButton(onClick = { showDateRangeDialog = true },
+                    contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Icon(Icons.Default.DateRange, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (filterDateFrom.isNotEmpty() || filterDateTo.isNotEmpty())
+                            "${filterDateFrom.ifEmpty { "-" }}〜${filterDateTo.ifEmpty { "-" }}"
+                        else "期間",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+                if (filterDateFrom.isNotEmpty() || filterDateTo.isNotEmpty()) {
+                    TextButton(onClick = { vm.filterDateFrom.value = ""; vm.filterDateTo.value = "" },
+                        contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        Text("期間解除", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
                 Box {
                     TextButton(onClick = { showSortMenu = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Icon(Icons.Default.Sort, null, modifier = Modifier.size(16.dp))
@@ -477,4 +513,31 @@ fun SwipeToDismissTaskItem(
             HorizontalDivider()
         }
     }
+}
+
+@Composable
+fun ScheduleDateRangeDialog(
+    initialFrom: String,
+    initialTo: String,
+    onConfirm: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var from by remember { mutableStateOf(initialFrom) }
+    var to   by remember { mutableStateOf(initialTo) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("期間を指定") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = from, onValueChange = { from = it },
+                    label = { Text("開始日 (yyyy-MM-dd)") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = to, onValueChange = { to = it },
+                    label = { Text("終了日 (yyyy-MM-dd)") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(from, to) }) { Text("適用") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } }
+    )
 }
