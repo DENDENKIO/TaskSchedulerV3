@@ -21,6 +21,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.taskschedulerv3.data.model.*
@@ -377,10 +381,39 @@ fun SwipeToDismissTaskItem(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val priorityColor = when (task.priority) { 0 -> Color(0xFFE53935); 2 -> Color(0xFF43A047); else -> Color(0xFFFB8C00) }
-                Box(modifier = Modifier.width(4.dp).height(44.dp).background(priorityColor, MaterialTheme.shapes.extraSmall))
+                // 残日数ベースの縦線色
+                val today = LocalDate.now()
+                val daysLeft = try {
+                    val taskDate = LocalDate.parse(task.startDate, DateTimeFormatter.ISO_LOCAL_DATE)
+                    ChronoUnit.DAYS.between(today, taskDate)
+                } catch (e: Exception) { Long.MAX_VALUE }
+                val deadlineColor = when {
+                    daysLeft < 0   -> Color(0xFF9E9E9E) // 過去 → グレー
+                    daysLeft <= 3  -> Color(0xFFE53935) // 3日以内 → 赤
+                    daysLeft <= 7  -> Color(0xFFFF6D00) // 1週間以内 → オレンジ
+                    daysLeft <= 14 -> Color(0xFF1E88E5) // 2週間以内 → 青
+                    daysLeft <= 31 -> Color(0xFF9E9E9E) // 1か月以内 → 灰色
+                    else           -> Color(0xFFBDBDBD) // それ以上 → 薄グレー
+                }
+                val daysLeftLabel = when {
+                    daysLeft < 0  -> null          // 過去は表示なし
+                    daysLeft == 0L -> "今日"
+                    else          -> "残り${daysLeft}日"
+                }
+                Box(modifier = Modifier.width(4.dp).height(52.dp).background(deadlineColor, MaterialTheme.shapes.extraSmall))
                 Spacer(Modifier.width(8.dp))
-                Checkbox(checked = task.isCompleted, onCheckedChange = { onComplete() })
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Checkbox(checked = task.isCompleted, onCheckedChange = { onComplete() })
+                    daysLeftLabel?.let {
+                        Text(
+                            text = it,
+                            fontSize = 9.sp,
+                            color = deadlineColor,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 10.sp
+                        )
+                    }
+                }
                 Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         // Schedule type icon
