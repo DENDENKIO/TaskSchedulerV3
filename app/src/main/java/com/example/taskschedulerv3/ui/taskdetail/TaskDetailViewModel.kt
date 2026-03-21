@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
+import com.example.taskschedulerv3.data.model.PhotoMemo
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.data.repository.TaskRelationRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
@@ -37,6 +38,12 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
     val relatedTasks: StateFlow<List<Task>> = combine(relatedTaskIds, allTasks) { ids, tasks ->
         tasks.filter { it.id in ids }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Photos attached to this task
+    val photos: StateFlow<List<PhotoMemo>> = _taskId
+        .filterNotNull()
+        .flatMapLatest { id -> db.photoMemoDao().getByTaskId(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun loadTask(id: Int) { _taskId.value = id }
 }

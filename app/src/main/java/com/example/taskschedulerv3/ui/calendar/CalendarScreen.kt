@@ -78,7 +78,10 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
                     month = currentMonth,
                     selectedDate = selectedDate,
                     dayRows = monthDayRows,
-                    onDateSelected = { vm.selectDate(it) },
+                    onDateSelected = { date ->
+                        vm.selectDate(date)
+                        navController.navigate(Screen.ScheduleList.createRoute(date))
+                    },
                     onPreviousMonth = { vm.previousMonth() },
                     onNextMonth = { vm.nextMonth() }
                 )

@@ -461,7 +461,8 @@ fun AddTaskScreen(
             Button(
                 onClick = { vm.save(editTaskId) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = title.isNotBlank() && startDate.isNotBlank()
+                enabled = title.isNotBlank() && startDate.isNotBlank() &&
+                    (scheduleType != ScheduleType.RECURRING || recurrencePattern != null)
             ) { Text("保存") }
         }
     }

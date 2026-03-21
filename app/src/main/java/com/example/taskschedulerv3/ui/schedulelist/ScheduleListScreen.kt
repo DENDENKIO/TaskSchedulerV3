@@ -31,7 +31,15 @@ import com.example.taskschedulerv3.ui.tag.parseColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel = viewModel()) {
+fun ScheduleListScreen(
+    navController: NavController,
+    initialDate: String = "",
+    vm: ScheduleListViewModel = viewModel()
+) {
+    // Apply initial date filter from CalendarScreen navigation
+    LaunchedEffect(initialDate) {
+        if (initialDate.isNotEmpty()) vm.filterDate.value = initialDate
+    }
     val tasks by vm.tasks.collectAsState()
     val searchQuery by vm.searchQuery.collectAsState()
     val sortOption by vm.sortOption.collectAsState()
@@ -39,14 +47,17 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
     val allTags by vm.allTags.collectAsState()
     val filterTagId by vm.filterTagId.collectAsState()
     val tagFilteredTaskIds by vm.tagFilteredTaskIds.collectAsState()
+    val filterDate by vm.filterDate.collectAsState()
 
     var showSortMenu by remember { mutableStateOf(false) }
     var showTagFilterDialog by remember { mutableStateOf(false) }
 
-    // Apply tag filter in UI
-    val displayedTasks = if (tagFilteredTaskIds != null) {
-        tasks.filter { it.id in tagFilteredTaskIds!! }
-    } else tasks
+    // Apply tag filter + date filter in UI
+    val displayedTasks = run {
+        var result = if (tagFilteredTaskIds != null) tasks.filter { it.id in tagFilteredTaskIds!! } else tasks
+        if (filterDate.isNotEmpty()) result = result.filter { it.startDate == filterDate }
+        result
+    }
 
     // Tag filter dialog
     if (showTagFilterDialog) {
@@ -67,6 +78,26 @@ fun ScheduleListScreen(navController: NavController, vm: ScheduleListViewModel =
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // Date filter banner
+            if (filterDate.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📅 ${filterDate} の予定",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    TextButton(onClick = { vm.filterDate.value = "" }) {
+                        Text("解除", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
             // Search bar
             OutlinedTextField(
                 value = searchQuery,
