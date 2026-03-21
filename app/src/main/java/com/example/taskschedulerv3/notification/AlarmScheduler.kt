@@ -50,23 +50,36 @@ object AlarmScheduler {
                 if (triggerTime.isAfter(now)) toMillis(triggerTime) else null
             }
             ScheduleType.RECURRING -> {
-                // Find next occurrence date from today
-                val startDate = DateUtils.parse(task.startDate)
-                val searchFrom = if (LocalDate.now().isBefore(startDate)) startDate.minusDays(1)
-                                 else LocalDate.now().minusDays(1)
-                val nextDate = RecurrenceCalculator.nextOccurrenceAfter(task, searchFrom) ?: return null
-                val time = task.startTime?.let { parseTime(it) } ?: LocalTime.of(9, 0)
-                val triggerTime = LocalDateTime.of(nextDate, time)
-                    .minusMinutes(task.notifyMinutesBefore.toLong())
-                if (triggerTime.isAfter(now)) toMillis(triggerTime) else {
-                    // Try the occurrence after nextDate
-                    val nextDate2 = RecurrenceCalculator.nextOccurrenceAfter(task, nextDate) ?: return null
-                    val t2 = LocalDateTime.of(nextDate2, time)
-                        .minusMinutes(task.notifyMinutesBefore.toLong())
-                    if (t2.isAfter(now)) toMillis(t2) else null
-                }
+                return calculateNextTriggerMillisAfter(task, LocalDate.now().minusDays(1))
             }
         }
+    }
+
+    /**
+     * Find the next trigger millis for a RECURRING task after [searchFrom] date.
+     * Searches for the next occurrence date strictly after searchFrom,
+     * then picks the one whose trigger time (startTime - notifyBefore) is in the future.
+     */
+    fun calculateNextTriggerMillisAfter(task: Task, searchFrom: LocalDate): Long? {
+        val now = LocalDateTime.now()
+        val time = task.startTime?.let { parseTime(it) } ?: LocalTime.of(9, 0)
+        var cursor = searchFrom
+        // Search up to 400 days ahead
+        val limit = searchFrom.plusDays(400)
+        while (!cursor.isAfter(limit)) {
+            val candidate = RecurrenceCalculator.nextOccurrenceAfter(task, cursor) ?: return null
+            val triggerTime = LocalDateTime.of(candidate, time)
+                .minusMinutes(task.notifyMinutesBefore.toLong())
+            if (triggerTime.isAfter(now)) return toMillis(triggerTime)
+            // Trigger time already passed for this occurrence — try the next one
+            cursor = candidate
+        }
+        return null
+    }
+
+    /** Schedule a raw alarm at the given millis (used by AlarmReceiver re-schedule). */
+    fun scheduleRaw(context: Context, task: Task, triggerAtMillis: Long) {
+        schedule(context, task, triggerAtMillis)
     }
 
     private fun schedule(context: Context, task: Task, triggerAtMillis: Long) {

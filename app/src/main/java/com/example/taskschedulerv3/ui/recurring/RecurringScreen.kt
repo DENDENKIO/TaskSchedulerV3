@@ -20,6 +20,8 @@ import androidx.navigation.NavController
 import com.example.taskschedulerv3.data.model.RecurrencePattern
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.navigation.Screen
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,7 +29,10 @@ fun RecurringScreen(
     navController: NavController,
     vm: RecurringViewModel = viewModel()
 ) {
-    val tasks by vm.recurringTasks.collectAsState()
+    val allTasks by vm.recurringTasks.collectAsState()
+    val todayTasks by vm.todayRecurringTasks.collectAsState()
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val tasks = if (selectedTab == 0) allTasks else todayTasks
     var deleteTarget by remember { mutableStateOf<Task?>(null) }
 
     deleteTarget?.let { task ->
@@ -65,29 +70,45 @@ fun RecurringScreen(
             }
         }
     ) { padding ->
-        if (tasks.isEmpty()) {
-            Box(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "繰り返し予定はありません",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // 今日 / すべて タブ
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("すべて (${allTasks.size})") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("今日 (${todayTasks.size})") }
                 )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 4.dp)
-            ) {
-                items(tasks, key = { it.id }) { task ->
-                    RecurringTaskItem(
-                        task = task,
-                        onEdit = { navController.navigate(Screen.EditTask.createRoute(task.id)) },
-                        onDelete = { deleteTarget = task }
+
+            if (tasks.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (selectedTab == 1) "今日の繰り返し予定はありません" else "繰り返し予定はありません",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
-                    HorizontalDivider()
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(tasks, key = { it.id }) { task ->
+                        RecurringTaskItem(
+                            task = task,
+                            onEdit = { navController.navigate(Screen.EditTask.createRoute(task.id)) },
+                            onDelete = { deleteTarget = task }
+                        )
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -122,7 +143,8 @@ private fun RecurringTaskItem(
                     color = Color(0xFF43A047)
                 )
                 Text(
-                    text = "開始: ${task.startDate}${task.startTime?.let { " $it" } ?: ""}",
+                    text = "開始: ${task.startDate}" +
+                        (task.startTime?.let { "  時刻: $it" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )

@@ -26,9 +26,15 @@ class AlarmReceiver : BroadcastReceiver() {
                                   else "${task.title}の時間です"
                     NotificationHelper.showNotification(context, taskId, task.title, message)
 
-                    // For RECURRING tasks: schedule next alarm after this occurrence
+                    // For RECURRING tasks: schedule the NEXT occurrence after TODAY
                     if (task.scheduleType == ScheduleType.RECURRING && task.notifyEnabled) {
-                        AlarmScheduler.scheduleForTask(context, task)
+                        // Pass today so nextOccurrenceAfter returns the next date AFTER today
+                        val nextMillis = AlarmScheduler.calculateNextTriggerMillisAfter(
+                            task, java.time.LocalDate.now()
+                        )
+                        if (nextMillis != null) {
+                            AlarmScheduler.scheduleRaw(context, task, nextMillis)
+                        }
                     }
                 }
             } finally {
