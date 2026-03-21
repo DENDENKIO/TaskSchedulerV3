@@ -68,6 +68,7 @@ fun AddTaskScreen(
     val notifyEnabled by vm.notifyEnabled.collectAsState()
     val notifyMinutesBefore by vm.notifyMinutesBefore.collectAsState()
     val recurrencePattern by vm.recurrencePattern.collectAsState()
+    val recurrenceDays by vm.recurrenceDays.collectAsState()
     val recurrenceEndDate by vm.recurrenceEndDate.collectAsState()
     val selectedTagIds by vm.selectedTagIds.collectAsState()
     val allTags by vm.allTags.collectAsState()
@@ -267,6 +268,36 @@ fun AddTaskScreen(
                                 RecurrencePattern.MONTHLY_WEEK to "毎月（曜日指定）", RecurrencePattern.YEARLY to "毎年"
                             ).forEach { (p, label) ->
                                 DropdownMenuItem(text = { Text(label) }, onClick = { vm.recurrencePattern.value = p; expandPattern = false })
+                            }
+                        }
+                    }
+                    if (recurrencePattern == RecurrencePattern.WEEKLY || recurrencePattern == RecurrencePattern.BIWEEKLY) {
+                        Text("曜日指定", style = MaterialTheme.typography.labelLarge)
+                        val selectedDays = remember(recurrenceDays) {
+                            recurrenceDays.split(",")
+                                .mapNotNull { it.trim().toIntOrNull() }
+                                .toSet()
+                        }
+                        val dayOptions = listOf(
+                            1 to "月", 2 to "火", 3 to "水", 4 to "木", 5 to "金", 6 to "土", 7 to "日"
+                        )
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            dayOptions.forEach { (value, label) ->
+                                FilterChip(
+                                    selected = value in selectedDays,
+                                    onClick = {
+                                        val newSet = if (value in selectedDays) {
+                                            selectedDays - value
+                                        } else {
+                                            selectedDays + value
+                                        }
+                                        vm.recurrenceDays.value = newSet.sorted().joinToString(",")
+                                    },
+                                    label = { Text(label) }
+                                )
                             }
                         }
                     }
