@@ -14,11 +14,14 @@ import com.example.taskschedulerv3.ui.addtask.AddTaskScreen
 import com.example.taskschedulerv3.ui.taskdetail.TaskDetailScreen
 import com.example.taskschedulerv3.ui.trash.TrashScreen
 import com.example.taskschedulerv3.ui.tag.TagManageScreen
+import com.example.taskschedulerv3.ui.recurring.RecurringScreen
 import com.example.taskschedulerv3.ui.relation.RelatedTasksScreen
 
 sealed class Screen(val route: String) {
     object Calendar : Screen("calendar")
-    object ScheduleList : Screen("schedule_list")
+    object ScheduleList : Screen("schedule_list?date={date}") {
+        fun createRoute(date: String = "") = "schedule_list?date=$date"
+    }
     object Photo : Screen("photo")
     object Settings : Screen("settings")
     object AddTask : Screen("add_task?date={date}") {
@@ -31,6 +34,7 @@ sealed class Screen(val route: String) {
         fun createRoute(taskId: Int) = "task_detail/$taskId"
     }
     object Trash : Screen("trash")
+    object Recurring : Screen("recurring")
     object TagManage : Screen("tag_manage")
     object PhotoDetail : Screen("photo_detail/{photoId}") {
         fun createRoute(photoId: Int) = "photo_detail/$photoId"
@@ -46,8 +50,9 @@ fun AppNavGraph(navController: NavHostController, modifier: Modifier = Modifier)
         composable(Screen.Calendar.route) {
             CalendarScreen(navController = navController)
         }
-        composable(Screen.ScheduleList.route) {
-            ScheduleListScreen(navController = navController)
+        composable("schedule_list?date={date}") { backStack ->
+            val date = backStack.arguments?.getString("date") ?: ""
+            ScheduleListScreen(navController = navController, initialDate = date)
         }
         composable(Screen.Photo.route) {
             PhotoListScreen(navController = navController)
@@ -69,6 +74,9 @@ fun AppNavGraph(navController: NavHostController, modifier: Modifier = Modifier)
         }
         composable(Screen.Trash.route) {
             TrashScreen(navController = navController)
+        }
+        composable(Screen.Recurring.route) {
+            RecurringScreen(navController = navController)
         }
         composable(Screen.TagManage.route) {
             TagManageScreen(navController = navController)

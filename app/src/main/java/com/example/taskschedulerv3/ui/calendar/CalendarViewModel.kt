@@ -117,34 +117,40 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                 else -> "日"
             }
 
-            // Tasks active on this date
+            // Tasks active on this date (RECURRING excluded from calendar/list)
             val dayTasks = tasks.filter { task ->
+                if (task.scheduleType == ScheduleType.RECURRING) return@filter false
                 when (task.scheduleType) {
                     ScheduleType.NORMAL -> task.startDate == dateStr
                     ScheduleType.PERIOD -> RecurrenceCalculator.getPeriodDatesInRange(task, date, date).isNotEmpty()
-                    ScheduleType.RECURRING -> RecurrenceCalculator.occursOn(task, date)
+                    else -> false
                 }
             }
 
-            // Build tag chips: group tasks by top-level tag (large category)
-            // For each task, find its tags and their ancestors
-            val chipMap = mutableMapOf<String, Pair<String, Int>>() // label -> (color, count)
+            // ── タグチップ構築ロジック ──
+            // キー: "大名・中名" (小カテゴリをまとめる単位) → Map<小名, count>
+            // 色は大カテゴリ層の色を使用
+            data class TagGroupKey(val largeName: String, val midName: String?, val color: String)
+            // 大-中 グループ → (小名 → count)
+            val groupMap = mutableMapOf<TagGroupKey, MutableMap<String?, Int>>()
+            var noTagCount = 0
 
             dayTasks.forEach { task ->
                 val taskTagIds = tagMap[task.id] ?: emptySet()
-                if (taskTagIds.isEmpty()) return@forEach
+                if (taskTagIds.isEmpty()) {
+                    noTagCount++
+                    return@forEach
+                }
 
-                // Find small tags (level 3) first, else medium (level 2), else large (level 1)
                 val taskTags = taskTagIds.mapNotNull { tagById[it] }
                 val smallTags = taskTags.filter { it.level == 3 }
-                val midTags = taskTags.filter { it.level == 2 }
+                val midTags   = taskTags.filter { it.level == 2 }
                 val largeTags = taskTags.filter { it.level == 1 }
 
-                // Build label from tag hierarchy for each leaf tag
                 val leafTags = when {
                     smallTags.isNotEmpty() -> smallTags
-                    midTags.isNotEmpty() -> midTags
-                    else -> largeTags
+                    midTags.isNotEmpty()   -> midTags
+                    else                   -> largeTags
                 }
 
                 leafTags.forEach { leaf ->
@@ -159,32 +165,48 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                         leaf.level == 2 -> tagById[leaf.parentId]
                         else -> leaf
                     }
-
-                    // Build short label: first char of large + mid + small
-                    val label = buildString {
-                        large?.name?.firstOrNull()?.let { append(it) }
-                        mid?.name?.firstOrNull()?.let { append(it) }
-                        small?.name?.firstOrNull()?.let { append(it) }
-                    }.ifEmpty { leaf.name.take(3) }
-
-                    // Color: use large tag color if available, else leaf color
-                    val color = large?.color ?: leaf.color
-
-                    val key = label + color
-                    val current = chipMap[key]
-                    chipMap[key] = color to ((current?.second ?: 0) + 1)
+                    val color = large?.color ?: mid?.color ?: leaf.color
+                    val groupKey = TagGroupKey(
+                        largeName = large?.name ?: mid?.name ?: leaf.name,
+                        midName   = if (large != null) mid?.name else null,
+                        color     = color
+                    )
+                    val subKey = small?.name  // null → 小カテゴリなし
+                    val sub = groupMap.getOrPut(groupKey) { mutableMapOf() }
+                    sub[subKey] = (sub[subKey] ?: 0) + 1
                 }
             }
 
-            // If no tags, still show total count as gray chip
-            val chips = if (chipMap.isEmpty() && dayTasks.isNotEmpty()) {
-                listOf(TagChip("予定", dayTasks.size, "#9E9E9E"))
-            } else {
-                chipMap.entries.map { (key, pair) ->
-                    val label = key.dropLast(7) // remove color suffix
-                    TagChip(label, pair.second, pair.first)
+            // グループごとに TagChip を生成
+            // 例: 大=仕事,中=本部 → label="仕事-本部-配劆2/指示3"
+            val chips = mutableListOf<TagChip>()
+
+            groupMap.forEach { (key, subMap) ->
+                val prefix = buildString {
+                    append(key.largeName)
+                    key.midName?.let { append("-").append(it) }
                 }
+                val subParts = subMap.entries.joinToString("/") { (smallName, cnt) ->
+                    if (smallName != null) "-${smallName}${cnt}" else cnt.toString()
+                }
+                // 小カテゴリがある場合: "仕事-本部-配劆2/指示3"
+                // 小カテゴリなし: "仕事-本部N"
+                val hasSmall = subMap.keys.any { it != null }
+                val label = if (hasSmall) {
+                    val parts = subMap.entries
+                        .sortedBy { it.key }
+                        .joinToString("/") { (sName, cnt) ->
+                            if (sName != null) "-${sName}${cnt}" else cnt.toString()
+                        }
+                    "$prefix$parts"
+                } else {
+                    "$prefix${subMap.values.sum()}"
+                }
+                val total = subMap.values.sum()
+                chips.add(TagChip(label, total, key.color))
             }
+
+            if (noTagCount > 0) chips.add(TagChip("タグ無し$noTagCount", noTagCount, "#9E9E9E"))
 
             rows.add(MonthDayRow(
                 dateStr = dateStr,
@@ -226,7 +248,8 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                 d to d
             }
         }
-        tasks.forEach { task ->
+        // RECURRING excluded from calendar dot display
+        tasks.filter { it.scheduleType != ScheduleType.RECURRING }.forEach { task ->
             when (task.scheduleType) {
                 ScheduleType.NORMAL -> {
                     if (task.startDate.isNotBlank()) dates.add(task.startDate)
@@ -235,10 +258,7 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                     RecurrenceCalculator.getPeriodDatesInRange(task, rangeStart, rangeEnd)
                         .forEach { dates.add(DateUtils.format(it)) }
                 }
-                ScheduleType.RECURRING -> {
-                    RecurrenceCalculator.getOccurrencesInRange(task, rangeStart, rangeEnd)
-                        .forEach { dates.add(DateUtils.format(it)) }
-                }
+                else -> {}
             }
         }
         dates
@@ -254,7 +274,7 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
             }
     }
 
-    // --- Tasks for selected date (includes NORMAL exact match + PERIOD/RECURRING expansions) ---
+    // --- Tasks for selected date (RECURRING excluded) ---
     val tasksForSelectedDate: StateFlow<List<Task>> = combine(
         allTasks,
         _selectedDate
@@ -262,10 +282,11 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         if (dateStr.isBlank()) return@combine emptyList()
         val date = DateUtils.parse(dateStr)
         tasks.filter { task ->
+            if (task.scheduleType == ScheduleType.RECURRING) return@filter false
             when (task.scheduleType) {
                 ScheduleType.NORMAL -> task.startDate == dateStr
                 ScheduleType.PERIOD -> RecurrenceCalculator.getPeriodDatesInRange(task, date, date).isNotEmpty()
-                ScheduleType.RECURRING -> RecurrenceCalculator.occursOn(task, date)
+                else -> false
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

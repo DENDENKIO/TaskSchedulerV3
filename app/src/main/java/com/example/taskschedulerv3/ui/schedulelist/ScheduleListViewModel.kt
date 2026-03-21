@@ -19,6 +19,8 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     val searchQuery = MutableStateFlow("")
     val sortOption = MutableStateFlow(SortOption.DATE_ASC)
     val filterOption = MutableStateFlow(FilterOption())
+    /** 月ビューから遷移したときの日付フィルタ (yyyy-MM-dd、空文字=フィルタなし) */
+    val filterDate = MutableStateFlow("")
 
     // All tags for tag-filter dialog
     val allTags: StateFlow<List<Tag>> = tagRepo.getAll()
@@ -36,7 +38,8 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         filterTagId,
         allTags
     ) { list, sort, filter, tagId, tags ->
-        var result = list
+        // RECURRING tasks are managed in RecurringScreen, not shown here
+        var result = list.filter { it.scheduleType != ScheduleType.RECURRING }
         // Completion filter
         result = when (filter.completionStatus) {
             CompletionFilter.INCOMPLETE -> result.filter { !it.isCompleted }

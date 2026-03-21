@@ -4,7 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
@@ -13,14 +15,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.navigation.Screen
+import com.example.taskschedulerv3.util.PhotoFileManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +37,7 @@ fun TaskDetailScreen(
 ) {
     val task by vm.task.collectAsState()
     val relatedTasks by vm.relatedTasks.collectAsState()
+    val photos by vm.photos.collectAsState()
 
     LaunchedEffect(taskId) { vm.loadTask(taskId) }
 
@@ -139,6 +146,33 @@ fun TaskDetailScreen(
                 }
 
                 // Related tasks section
+                // Photos section
+                if (photos.isNotEmpty()) {
+                    item {
+                        HorizontalDivider()
+                        Spacer(Modifier.height(4.dp))
+                        Text("カメラメモ", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(photos) { photo ->
+                                AsyncImage(
+                                    model = PhotoFileManager.pathToUri(photo.imagePath),
+                                    contentDescription = photo.title ?: photo.date,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(120.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            navController.navigate(Screen.PhotoDetail.createRoute(photo.id))
+                                        }
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (relatedTasks.isNotEmpty()) {
                     item {
                         HorizontalDivider()

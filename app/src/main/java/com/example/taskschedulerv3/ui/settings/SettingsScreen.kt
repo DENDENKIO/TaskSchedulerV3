@@ -100,6 +100,13 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             HorizontalDivider()
 
             SettingsItem(
+                title = "繰り返し予定",
+                subtitle = "繰り返し予定の一覧・編集・削除",
+                onClick = { navController.navigate(Screen.Recurring.route) }
+            )
+            HorizontalDivider()
+
+            SettingsItem(
                 title = "タグ管理",
                 subtitle = "3階層タグの作成・編集・削除",
                 onClick = { navController.navigate(Screen.TagManage.route) }

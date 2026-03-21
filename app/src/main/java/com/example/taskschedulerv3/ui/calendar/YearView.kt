@@ -55,7 +55,7 @@ fun YearView(
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(4.dp)
         ) {
@@ -146,9 +146,9 @@ fun MiniMonthCalendar(
                                     if (hasTasks) {
                                         Box(
                                             modifier = Modifier
-                                                .size(3.dp)
+                                                .size(5.dp)
                                                 .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.primary)
+                                                .background(Color(0xFFE53935)) // 目立つ赤
                                         )
                                     }
                                 }
