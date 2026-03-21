@@ -78,7 +78,8 @@ fun DayView(
                     ) {
                         Box(modifier = Modifier.width(4.dp).height(20.dp).background(color, MaterialTheme.shapes.extraSmall))
                         Spacer(Modifier.width(8.dp))
-                        Text(task.title, style = MaterialTheme.typography.bodyMedium)
+                        Text(task.title, style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }

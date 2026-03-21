@@ -117,14 +117,21 @@ fun TodaySummaryCard(summary: TodaySummary) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("今日 ${summary.date}", style = MaterialTheme.typography.labelMedium)
-                Text("未完了タスク: ${summary.incompleteCount}件", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text("今日 ${summary.date}", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("未完了タスク: ${summary.incompleteCount}件", style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             summary.nextTaskTitle?.let { title ->
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("直近", style = MaterialTheme.typography.labelSmall)
-                    Text(title, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                    summary.nextTaskTime?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                    Text("直近", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                    Text(title, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    summary.nextTaskTime?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                    }
                 }
             }
         }
