@@ -71,21 +71,28 @@ fun TaskSchedulerApp() {
     val navController = rememberNavController()
     val bottomItems = listOf(
         BottomNavItem("カレンダー", Icons.Default.CalendarMonth, Screen.Calendar.route),
-        BottomNavItem("一覧", Icons.Default.List, Screen.ScheduleList.route),
+        BottomNavItem("一覧", Icons.Default.List, Screen.ScheduleList.createRoute()),
         BottomNavItem("写真", Icons.Default.Photo, Screen.Photo.route),
         BottomNavItem("設定", Icons.Default.Settings, Screen.Settings.route),
     )
     val currentBackStack by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStack?.destination?.route
 
+    // ScheduleList route pattern contains query params — match by prefix
+    fun routeMatches(current: String?, item: String): Boolean {
+        if (current == null) return false
+        return current == item || current.startsWith("schedule_list")
+            && item.startsWith("schedule_list")
+    }
+
     Scaffold(
         bottomBar = {
             NavigationBar {
                 bottomItems.forEach { item ->
                     NavigationBarItem(
-                        selected = currentRoute == item.route,
+                        selected = routeMatches(currentRoute, item.route),
                         onClick = {
-                            if (currentRoute != item.route) {
+                            if (!routeMatches(currentRoute, item.route)) {
                                 navController.navigate(item.route) {
                                     popUpTo(Screen.Calendar.route) { saveState = true }
                                     launchSingleTop = true
