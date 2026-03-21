@@ -29,4 +29,20 @@ interface PhotoMemoDao {
 
     @Query("SELECT * FROM photo_memos WHERE id = :id")
     suspend fun getById(id: Int): PhotoMemo?
+
+    @Update
+    suspend fun update(photoMemo: PhotoMemo)
+
+    /** Search by title or memo text */
+    @Query("SELECT * FROM photo_memos WHERE title LIKE '%' || :query || '%' OR memo LIKE '%' || :query || '%' ORDER BY createdAt DESC")
+    fun search(query: String): Flow<List<PhotoMemo>>
+
+    /** Get photos that have any of the given tag ids (via photo_tag_cross_ref) */
+    @Query("""
+        SELECT DISTINCT photo_memos.* FROM photo_memos
+        INNER JOIN photo_tag_cross_ref ON photo_memos.id = photo_tag_cross_ref.photoId
+        WHERE photo_tag_cross_ref.tagId IN (:tagIds)
+        ORDER BY photo_memos.createdAt DESC
+    """)
+    fun getByTagIds(tagIds: List<Int>): Flow<List<PhotoMemo>>
 }
