@@ -94,7 +94,11 @@ fun TaskSchedulerApp() {
                         onClick = {
                             if (!routeMatches(currentRoute, item.route)) {
                                 navController.navigate(item.route) {
-                                    popUpTo(Screen.Calendar.route) { saveState = true }
+                                    // Pop entire back stack back to start (Calendar)
+                                    popUpTo(navController.graph.id) {
+                                        saveState = true
+                                        inclusive = false
+                                    }
                                     launchSingleTop = true
                                     restoreState = true
                                 }
