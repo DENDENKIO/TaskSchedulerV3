@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.ScheduleType
+import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.data.model.TaskCompletion
 import com.example.taskschedulerv3.data.repository.TaskRepository
@@ -16,6 +17,28 @@ import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 
 enum class CalendarViewMode { YEAR, MONTH, WEEK, DAY }
+
+/** タグ1件と、そのタグに紐付くタスクid一覧 */
+data class TagTaskEntry(val tag: Tag, val taskIds: Set<Int>)
+
+/** 1日分の月リスト行データ */
+data class MonthDayRow(
+    val dateStr: String,          // yyyy-MM-dd
+    val dayOfMonth: Int,
+    val dayOfWeekLabel: String,   // 月/火/水...
+    val isToday: Boolean,
+    val isHoliday: Boolean,       // 日曜=true
+    val isSaturday: Boolean,
+    /** 大カテゴリtag → (中カテゴリtag? → (小カテゴリtag? → count)) の集約チップリスト */
+    val tagChips: List<TagChip>
+)
+
+/** 月ビューの1タグチップ: 短縮ラベル + 件数 + 色 */
+data class TagChip(
+    val label: String,   // 例: "仕本配" or "仕本" or "仕"
+    val count: Int,
+    val color: String    // #RRGGBB
+)
 
 class CalendarViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
@@ -40,6 +63,141 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
     // --- All tasks (base list) ---
     val allTasks: StateFlow<List<Task>> = repo.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- All tags ---
+    private val allTags: StateFlow<List<Tag>> = db.tagDao().getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // taskId → Set<tagId> mapping (crossRef table を監視)
+    private val _taskTagMap: StateFlow<Map<Int, Set<Int>>> = run {
+        // Observe crossRef table changes by joining with tasks flow
+        allTasks.flatMapLatest { tasks ->
+            if (tasks.isEmpty()) flowOf(emptyMap())
+            else {
+                // Collect all crossRefs for all tasks
+                val flows = tasks.map { task ->
+                    db.taskTagCrossRefDao().getTagsByTaskId(task.id)
+                        .map { tags -> task.id to tags.map { it.id }.toSet() }
+                }
+                combine(flows) { pairs -> pairs.toMap() }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    }
+
+    // --- Month day rows for MonthView list ---
+    val monthDayRows: StateFlow<List<MonthDayRow>> = combine(
+        allTasks, allTags, _taskTagMap, _currentYear, _currentMonth
+    ) { tasks, tags, tagMap, year, month ->
+        buildMonthDayRows(tasks, tags, tagMap, year, month)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun buildMonthDayRows(
+        tasks: List<Task>,
+        tags: List<Tag>,
+        tagMap: Map<Int, Set<Int>>,
+        year: Int,
+        month: Int
+    ): List<MonthDayRow> {
+        val tagById = tags.associateBy { it.id }
+        val daysInMonth = DateUtils.daysInMonth(year, month)
+        val todayStr = DateUtils.today()
+        val rows = mutableListOf<MonthDayRow>()
+
+        for (day in 1..daysInMonth) {
+            val dateStr = "%04d-%02d-%02d".format(year, month, day)
+            val date = DateUtils.parse(dateStr)
+            val dow = date.dayOfWeek
+            val dowLabel = when (dow) {
+                java.time.DayOfWeek.MONDAY -> "月"
+                java.time.DayOfWeek.TUESDAY -> "火"
+                java.time.DayOfWeek.WEDNESDAY -> "水"
+                java.time.DayOfWeek.THURSDAY -> "木"
+                java.time.DayOfWeek.FRIDAY -> "金"
+                java.time.DayOfWeek.SATURDAY -> "土"
+                else -> "日"
+            }
+
+            // Tasks active on this date
+            val dayTasks = tasks.filter { task ->
+                when (task.scheduleType) {
+                    ScheduleType.NORMAL -> task.startDate == dateStr
+                    ScheduleType.PERIOD -> RecurrenceCalculator.getPeriodDatesInRange(task, date, date).isNotEmpty()
+                    ScheduleType.RECURRING -> RecurrenceCalculator.occursOn(task, date)
+                }
+            }
+
+            // Build tag chips: group tasks by top-level tag (large category)
+            // For each task, find its tags and their ancestors
+            val chipMap = mutableMapOf<String, Pair<String, Int>>() // label -> (color, count)
+
+            dayTasks.forEach { task ->
+                val taskTagIds = tagMap[task.id] ?: emptySet()
+                if (taskTagIds.isEmpty()) return@forEach
+
+                // Find small tags (level 3) first, else medium (level 2), else large (level 1)
+                val taskTags = taskTagIds.mapNotNull { tagById[it] }
+                val smallTags = taskTags.filter { it.level == 3 }
+                val midTags = taskTags.filter { it.level == 2 }
+                val largeTags = taskTags.filter { it.level == 1 }
+
+                // Build label from tag hierarchy for each leaf tag
+                val leafTags = when {
+                    smallTags.isNotEmpty() -> smallTags
+                    midTags.isNotEmpty() -> midTags
+                    else -> largeTags
+                }
+
+                leafTags.forEach { leaf ->
+                    val small = if (leaf.level == 3) leaf else null
+                    val mid = when {
+                        leaf.level == 3 -> tagById[leaf.parentId]
+                        leaf.level == 2 -> leaf
+                        else -> null
+                    }
+                    val large = when {
+                        leaf.level == 3 -> tagById[leaf.parentId]?.let { tagById[it.parentId] }
+                        leaf.level == 2 -> tagById[leaf.parentId]
+                        else -> leaf
+                    }
+
+                    // Build short label: first char of large + mid + small
+                    val label = buildString {
+                        large?.name?.firstOrNull()?.let { append(it) }
+                        mid?.name?.firstOrNull()?.let { append(it) }
+                        small?.name?.firstOrNull()?.let { append(it) }
+                    }.ifEmpty { leaf.name.take(3) }
+
+                    // Color: use large tag color if available, else leaf color
+                    val color = large?.color ?: leaf.color
+
+                    val key = label + color
+                    val current = chipMap[key]
+                    chipMap[key] = color to ((current?.second ?: 0) + 1)
+                }
+            }
+
+            // If no tags, still show total count as gray chip
+            val chips = if (chipMap.isEmpty() && dayTasks.isNotEmpty()) {
+                listOf(TagChip("予定", dayTasks.size, "#9E9E9E"))
+            } else {
+                chipMap.entries.map { (key, pair) ->
+                    val label = key.dropLast(7) // remove color suffix
+                    TagChip(label, pair.second, pair.first)
+                }
+            }
+
+            rows.add(MonthDayRow(
+                dateStr = dateStr,
+                dayOfMonth = day,
+                dayOfWeekLabel = dowLabel,
+                isToday = dateStr == todayStr,
+                isHoliday = dow == java.time.DayOfWeek.SUNDAY,
+                isSaturday = dow == java.time.DayOfWeek.SATURDAY,
+                tagChips = chips
+            ))
+        }
+        return rows
+    }
 
     // --- Expanded task dates (NORMAL + PERIOD + RECURRING) for dot/bar display ---
     // Returns a Set<String> of all yyyy-MM-dd dates that have at least one task

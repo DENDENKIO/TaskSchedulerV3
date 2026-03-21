@@ -2,128 +2,179 @@ package com.example.taskschedulerv3.ui.calendar
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.example.taskschedulerv3.util.DateUtils
-import java.time.LocalDate
+import androidx.compose.ui.unit.sp
 
+/**
+ * MonthView — 月初〜月末を行リスト形式で表示。
+ * 各行: 日付（曜日）＋ タグ別件数チップ（横スクロール対応）
+ */
 @Composable
 fun MonthView(
     year: Int,
     month: Int,
     selectedDate: String,
-    tasksWithDates: Set<String>,
+    dayRows: List<MonthDayRow>,
     onDateSelected: (String) -> Unit,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit
 ) {
-    val today = DateUtils.today()
-    val daysInMonth = DateUtils.daysInMonth(year, month)
-    val firstDayOfWeek = DateUtils.firstDayOfWeek(year, month)
-    val dayLabels = listOf("日", "月", "火", "水", "木", "金", "土")
+    Column(modifier = Modifier.fillMaxSize()) {
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures { _, dragAmount ->
-                    if (dragAmount < -50) onNextMonth()
-                    else if (dragAmount > 50) onPreviousMonth()
-                }
-            }
-    ) {
-        // Header
+        // ── ヘッダー（前月 / 年月 / 次月） ──
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onPreviousMonth) { Icon(Icons.Default.ArrowBack, null) }
-            Text("${year}年${month}月", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            IconButton(onClick = onNextMonth) { Icon(Icons.Default.ArrowForward, null) }
-        }
-        // Day of week labels
-        Row(modifier = Modifier.fillMaxWidth()) {
-            dayLabels.forEach { label ->
-                Text(
-                    text = label,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = when (label) {
-                        "日" -> Color(0xFFE53935)
-                        "土" -> Color(0xFF1E88E5)
-                        else -> MaterialTheme.colorScheme.onSurface
-                    }
-                )
+            IconButton(onClick = onPreviousMonth) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "前月")
+            }
+            Text(
+                text = "${year}年${month}月",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            IconButton(onClick = onNextMonth) {
+                Icon(Icons.Default.ArrowForward, contentDescription = "次月")
             }
         }
-        // Calendar grid
-        val cells = firstDayOfWeek + daysInMonth
-        val rows = (cells + 6) / 7
-        for (row in 0 until rows) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                for (col in 0 until 7) {
-                    val cellIndex = row * 7 + col
-                    val day = cellIndex - firstDayOfWeek + 1
-                    if (day < 1 || day > daysInMonth) {
-                        Box(modifier = Modifier.weight(1f).aspectRatio(1f))
-                    } else {
-                        val dateStr = "%04d-%02d-%02d".format(year, month, day)
-                        val isSelected = dateStr == selectedDate
-                        val isToday = dateStr == today
-                        val hasTasks = tasksWithDates.contains(dateStr)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .aspectRatio(1f)
-                                .clip(CircleShape)
-                                .background(
-                                    when {
-                                        isSelected -> MaterialTheme.colorScheme.primary
-                                        isToday -> MaterialTheme.colorScheme.primaryContainer
-                                        else -> Color.Transparent
-                                    }
-                                )
-                                .clickable { onDateSelected(dateStr) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = day.toString(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = when {
-                                        isSelected -> MaterialTheme.colorScheme.onPrimary
-                                        col == 0 -> Color(0xFFE53935)
-                                        col == 6 -> Color(0xFF1E88E5)
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    }
-                                )
-                                if (hasTasks) {
-                                    Box(
-                                        modifier = Modifier.size(4.dp).clip(CircleShape)
-                                            .background(if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
-                                    )
-                                }
-                            }
-                        }
-                    }
+
+        HorizontalDivider()
+
+        // ── 日付行リスト ──
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(dayRows, key = { it.dateStr }) { row ->
+                MonthDayRowItem(
+                    row = row,
+                    isSelected = row.dateStr == selectedDate,
+                    onClick = { onDateSelected(row.dateStr) }
+                )
+                HorizontalDivider(thickness = 0.5.dp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthDayRowItem(
+    row: MonthDayRow,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val dateColor = when {
+        row.isHoliday  -> Color(0xFFE53935)
+        row.isSaturday -> Color(0xFF1E88E5)
+        else           -> MaterialTheme.colorScheme.onSurface
+    }
+    val bgColor = when {
+        isSelected -> MaterialTheme.colorScheme.primaryContainer
+        row.isToday -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+        else        -> Color.Transparent
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 日付 + 曜日（固定幅）
+        Column(
+            modifier = Modifier.width(44.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = row.dayOfMonth.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (row.isToday) FontWeight.Bold else FontWeight.Normal,
+                color = dateColor
+            )
+            Text(
+                text = row.dayOfWeekLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = dateColor.copy(alpha = 0.8f)
+            )
+        }
+
+        Spacer(Modifier.width(8.dp))
+
+        // タグチップ群（横スクロール）
+        if (row.tagChips.isEmpty()) {
+            // 予定なし
+            Text(
+                text = "—",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            )
+        } else {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                row.tagChips.forEach { chip ->
+                    TagCountChip(chip)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TagCountChip(chip: TagChip) {
+    val bgColor = try {
+        Color(android.graphics.Color.parseColor(chip.color))
+    } catch (e: Exception) {
+        Color(0xFF9E9E9E)
+    }
+    // Determine text color based on luminance
+    val luminance = (0.299f * bgColor.red + 0.587f * bgColor.green + 0.114f * bgColor.blue)
+    val textColor = if (luminance > 0.5f) Color.Black else Color.White
+
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = bgColor,
+        modifier = Modifier.height(22.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = chip.label,
+                color = textColor,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+            Text(
+                text = chip.count.toString(),
+                color = textColor.copy(alpha = 0.9f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
         }
     }
 }

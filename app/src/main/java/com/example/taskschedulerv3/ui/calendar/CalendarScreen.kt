@@ -35,6 +35,7 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
     val allTasks by vm.allTasks.collectAsState()
     val allTaskDates by vm.allTaskDates.collectAsState()
     val summary by vm.todaySummary.collectAsState()
+    val monthDayRows by vm.monthDayRows.collectAsState()
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("タスクスケジューラ") }) },
@@ -72,25 +73,15 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
                     onPreviousYear = { vm.previousYear() },
                     onNextYear = { vm.nextYear() }
                 )
-                CalendarViewMode.MONTH -> Column(modifier = Modifier.fillMaxSize()) {
-                    MonthView(
-                        year = currentYear,
-                        month = currentMonth,
-                        selectedDate = selectedDate,
-                        tasksWithDates = allTaskDates,
-                        onDateSelected = { vm.selectDate(it) },
-                        onPreviousMonth = { vm.previousMonth() },
-                        onNextMonth = { vm.nextMonth() }
-                    )
-                    HorizontalDivider()
-                    SelectedDateTaskList(
-                        date = selectedDate,
-                        tasks = tasksForDate,
-                        onDelete = { vm.deleteTask(it) },
-                        onToggleComplete = { vm.toggleComplete(it) },
-                        onTaskClick = { navController.navigate(Screen.TaskDetail.createRoute(it.id)) }
-                    )
-                }
+                CalendarViewMode.MONTH -> MonthView(
+                    year = currentYear,
+                    month = currentMonth,
+                    selectedDate = selectedDate,
+                    dayRows = monthDayRows,
+                    onDateSelected = { vm.selectDate(it) },
+                    onPreviousMonth = { vm.previousMonth() },
+                    onNextMonth = { vm.nextMonth() }
+                )
                 CalendarViewMode.WEEK -> WeekView(
                     selectedDate = selectedDate,
                     tasks = allTasks,
