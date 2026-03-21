@@ -1,6 +1,7 @@
 package com.example.taskschedulerv3.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -72,7 +73,9 @@ fun WeekView(
                 val isToday = dateStr == today
                 val isSelected = dateStr == selectedDate
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onDateSelected(dateStr) },
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
