@@ -92,10 +92,16 @@ fun TaskSchedulerApp() {
                     NavigationBarItem(
                         selected = routeMatches(currentRoute, item.route),
                         onClick = {
-                            if (!routeMatches(currentRoute, item.route)) {
+                            val isCalendar = item.route == Screen.Calendar.route
+                            if (isCalendar) {
+                                // Always pop everything and go back to Calendar
+                                navController.navigate(Screen.Calendar.route) {
+                                    popUpTo(0) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            } else if (!routeMatches(currentRoute, item.route)) {
                                 navController.navigate(item.route) {
-                                    // Pop entire back stack back to start (Calendar)
-                                    popUpTo(navController.graph.id) {
+                                    popUpTo(Screen.Calendar.route) {
                                         saveState = true
                                         inclusive = false
                                     }
