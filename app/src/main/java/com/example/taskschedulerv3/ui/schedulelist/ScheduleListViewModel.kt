@@ -38,8 +38,10 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         filterTagId,
         allTags
     ) { list, sort, filter, tagId, tags ->
-        // RECURRING tasks are managed in RecurringScreen, not shown here
-        var result = list.filter { it.scheduleType != ScheduleType.RECURRING }
+        // RECURRING tasks are hidden by default unless explicitly filtered
+        val showRecurring = ScheduleType.RECURRING in filter.scheduleTypes
+        var result = if (showRecurring) list
+                     else list.filter { it.scheduleType != ScheduleType.RECURRING }
         // Completion filter
         result = when (filter.completionStatus) {
             CompletionFilter.INCOMPLETE -> result.filter { !it.isCompleted }
