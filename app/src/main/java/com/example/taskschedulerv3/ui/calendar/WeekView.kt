@@ -71,7 +71,7 @@ fun WeekView(
             weekDays.forEach { day ->
                 val dateStr = DateUtils.format(day)
                 val isToday = dateStr == today
-                val isSelected = dateStr == selectedDate
+                val hasTasks = tasks.any { it.startDate == dateStr }
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -81,19 +81,15 @@ fun WeekView(
                     Text(
                         text = listOf("月", "火", "水", "木", "金", "土", "日")[day.dayOfWeek.value - 1],
                         fontSize = 10.sp,
-                        color = when {
-                            day.dayOfWeek.value == 7 -> Color(0xFFE53935)
-                            day.dayOfWeek.value == 6 -> Color(0xFF1E88E5)
-                            else -> MaterialTheme.colorScheme.onSurface
-                        }
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Box(
                         modifier = Modifier
                             .size(28.dp)
                             .background(
                                 when {
-                                    isSelected -> MaterialTheme.colorScheme.primary
                                     isToday -> MaterialTheme.colorScheme.primaryContainer
+                                    hasTasks -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                                     else -> Color.Transparent
                                 },
                                 shape = MaterialTheme.shapes.small
@@ -104,11 +100,10 @@ fun WeekView(
                             text = day.dayOfMonth.toString(),
                             fontSize = 12.sp,
                             color = when {
-                                isSelected -> MaterialTheme.colorScheme.onPrimary
-                                isToday -> MaterialTheme.colorScheme.primary
+                                isToday -> MaterialTheme.colorScheme.onPrimaryContainer
                                 else -> MaterialTheme.colorScheme.onSurface
                             },
-                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
+                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }
