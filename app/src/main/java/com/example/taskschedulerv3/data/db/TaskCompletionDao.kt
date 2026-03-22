@@ -20,4 +20,8 @@ interface TaskCompletionDao {
 
     @Query("SELECT * FROM task_completions")
     fun getAll(): kotlinx.coroutines.flow.Flow<List<TaskCompletion>>
+
+    /** Delete all completion records older than the given date (exclusive) */
+    @Query("DELETE FROM task_completions WHERE completedDate < :date")
+    suspend fun deleteOlderThan(date: String)
 }

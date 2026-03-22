@@ -27,6 +27,7 @@ import com.example.taskschedulerv3.ui.theme.TaskSchedulerV3Theme
 import com.example.taskschedulerv3.util.ThemeMode
 import com.example.taskschedulerv3.util.ThemePreferences
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,6 +40,11 @@ class MainActivity : ComponentActivity() {
                 val db = AppDatabase.getInstance(this@MainActivity)
                 val repo = TaskRepository(db.taskDao())
                 repo.purgeOldDeleted()
+
+                // Auto-purge completed recurring task records from yesterday and earlier
+                // (keep only today's completion records so recurring tasks reset each day)
+                val today = LocalDate.now().toString()  // yyyy-MM-dd format
+                db.taskCompletionDao().deleteOlderThan(today)
             } catch (e: Exception) {
                 // Ignore purge errors on startup
             }
