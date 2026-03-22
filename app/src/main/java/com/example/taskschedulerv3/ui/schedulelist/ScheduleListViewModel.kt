@@ -48,10 +48,6 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         var result = if (showRecurring) list
                      else list.filter { it.scheduleType != ScheduleType.RECURRING }
 
-        // When showing recurring tasks, also include them on dates they occur on
-        // (recurring tasks' startDate is the original creation date, not today)
-        // We mark recurring tasks to be included in date-based filtering later
-        val _ = showRecurring // placeholder, actual date filtering happens in UI
         // Completion filter
         result = when (filter.completionStatus) {
             CompletionFilter.INCOMPLETE -> result.filter { !it.isCompleted }
