@@ -26,7 +26,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,6 +34,7 @@ import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.PhotoMemo
 import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.navigation.Screen
+import com.example.taskschedulerv3.ui.components.buildPath
 import com.example.taskschedulerv3.ui.tag.parseColor
 import com.example.taskschedulerv3.util.DateUtils
 import com.example.taskschedulerv3.util.PhotoFileManager
@@ -96,6 +96,11 @@ fun PhotoListScreen(navController: NavController, vm: PhotoListViewModel = viewM
         )
     }
 
+    // 現在アクティブなフィルタがあるか
+    val hasAnyFilter = filterTagId != null ||
+        missingFilter != PhotoMissingFilter.NONE ||
+        dateFrom.isNotEmpty() || dateTo.isNotEmpty()
+
     Scaffold(
         topBar = {
             if (isSelectionMode) {
@@ -156,38 +161,22 @@ fun PhotoListScreen(navController: NavController, vm: PhotoListViewModel = viewM
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
             )
 
-            // ── フィルタ行 ──
+            // ── フィルタチップ行（スケジュール一覧と同じ方式） ──
             LazyRow(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // すべて
+                // タグフィルタ（タップでダイアログ、選択中はパスを表示）
                 item {
-                    FilterChip(selected = filterTagId == null && missingFilter == PhotoMissingFilter.NONE,
-                        onClick = { vm.setTagFilter(null); vm.missingFilter.value = PhotoMissingFilter.NONE },
-                        label = { Text("すべて") })
-                }
-                // タグ指定（固定・階層ダイアログ）
-                item {
+                    val tagLabel = filterTagId?.let { id ->
+                        allTags.find { it.id == id }?.let { tag -> buildPath(tag, allTags) }
+                    }
                     FilterChip(
                         selected = filterTagId != null,
                         onClick = { showTagFilterDialog = true },
-                        label = { Text(if (filterTagId != null) allTags.find { it.id == filterTagId }?.name ?: "タグ指定" else "タグ指定") },
-                        leadingIcon = { Icon(Icons.Default.Label, null, modifier = Modifier.size(14.dp)) }
-                    )
-                }
-                // 大カテゴリタグ → 即時フィルタ
-                items(allTags.filter { it.level == 1 }) { tag ->
-                    FilterChip(
-                        selected = filterTagId == tag.id,
-                        onClick = {
-                            vm.setTagFilter(if (filterTagId == tag.id) null else tag.id)
-                        },
-                        label = { Text(tag.name) },
-                        leadingIcon = {
-                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(parseColor(tag.color)))
-                        }
+                        label = { Text(tagLabel ?: "タグ") },
+                        leadingIcon = { Icon(Icons.Default.Label, null, modifier = Modifier.size(16.dp)) }
                     )
                 }
                 // 未登録フィルタ
@@ -219,7 +208,7 @@ fun PhotoListScreen(navController: NavController, vm: PhotoListViewModel = viewM
                         onClick = { showDateRangeDialog = true },
                         label = {
                             Text(if (dateFrom.isNotEmpty() || dateTo.isNotEmpty())
-                                "${dateFrom.ifEmpty { "〜" }} 〜 ${dateTo.ifEmpty { "〜" }}" else "期間指定")
+                                "${dateFrom.ifEmpty { "-" }}〜${dateTo.ifEmpty { "-" }}" else "期間")
                         },
                         leadingIcon = { Icon(Icons.Default.DateRange, null, modifier = Modifier.size(14.dp)) }
                     )
@@ -227,6 +216,19 @@ fun PhotoListScreen(navController: NavController, vm: PhotoListViewModel = viewM
                 if (dateFrom.isNotEmpty() || dateTo.isNotEmpty()) {
                     item {
                         TextButton(onClick = { vm.clearDateRange() }) { Text("期間解除") }
+                    }
+                }
+                // クリアボタン（何かフィルタがアクティブな場合のみ表示）
+                if (hasAnyFilter) {
+                    item {
+                        AssistChip(
+                            onClick = {
+                                vm.setTagFilter(null)
+                                vm.missingFilter.value = PhotoMissingFilter.NONE
+                                vm.clearDateRange()
+                            },
+                            label = { Text("クリア") }
+                        )
                     }
                 }
             }
@@ -326,7 +328,7 @@ fun SelectablePhotoGrid(
     }
 }
 
-// ── 階層展開式タグフィルタダイアログ ──
+// ── 階層展開式タグフィルタダイアログ（スケジュール一覧と同じ方式） ──
 @Composable
 fun HierarchicalTagFilterDialog(
     allTags: List<Tag>,
@@ -334,9 +336,9 @@ fun HierarchicalTagFilterDialog(
     onSelect: (Int?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val expandedLarge = remember { mutableStateOf<Int?>(null) }
-    val expandedMid   = remember { mutableStateOf<Int?>(null) }
-    val largeTags = allTags.filter { it.level == 1 }
+    val largeTags = allTags.filter { it.level == 1 }.sortedBy { it.sortOrder }
+    var expandedId by remember { mutableStateOf<Int?>(null) }
+    var expandedMediumId by remember { mutableStateOf<Int?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -344,54 +346,53 @@ fun HierarchicalTagFilterDialog(
         text = {
             LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                 item {
-                    Row(modifier = Modifier.fillMaxWidth().clickable { onSelect(null) }.padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = selectedTagId == null, onClick = { onSelect(null) })
-                        Spacer(Modifier.width(8.dp))
-                        Text("すべて")
-                    }
+                    TextButton(onClick = { onSelect(null) }) { Text("すべて表示") }
                 }
-                items(largeTags) { large ->
-                    val midTags = allTags.filter { it.parentId == large.id }
-                    val isExpanded = expandedLarge.value == large.id
-                    // 大カテゴリ行
-                    Row(modifier = Modifier.fillMaxWidth().clickable {
-                        if (midTags.isEmpty()) onSelect(large.id)
-                        else expandedLarge.value = if (isExpanded) null else large.id
-                    }.padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = selectedTagId == large.id, onClick = { onSelect(large.id) })
-                        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(parseColor(large.color)))
-                        Spacer(Modifier.width(8.dp))
-                        Text(large.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        if (midTags.isNotEmpty()) {
-                            Icon(if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, modifier = Modifier.size(18.dp))
+                largeTags.forEach { large ->
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = selectedTagId == large.id, onClick = { onSelect(large.id) })
+                            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(parseColor(large.color)))
+                            Spacer(Modifier.width(8.dp))
+                            Text(large.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            if (allTags.any { it.parentId == large.id }) {
+                                TextButton(onClick = {
+                                    expandedId = if (expandedId == large.id) null else large.id
+                                }) { Text(if (expandedId == large.id) "折りたたむ" else "展開") }
+                            }
                         }
                     }
-                    // 中カテゴリ（展開時）
-                    if (isExpanded) {
-                        midTags.forEach { mid ->
-                            val smallTags = allTags.filter { it.parentId == mid.id }
-                            val isMidExpanded = expandedMid.value == mid.id
-                            Row(modifier = Modifier.fillMaxWidth().clickable {
-                                if (smallTags.isEmpty()) onSelect(mid.id)
-                                else expandedMid.value = if (isMidExpanded) null else mid.id
-                            }.padding(start = 24.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = selectedTagId == mid.id, onClick = { onSelect(mid.id) })
-                                Text(mid.name, modifier = Modifier.weight(1f))
-                                if (smallTags.isNotEmpty()) {
-                                    Icon(if (isMidExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, modifier = Modifier.size(16.dp))
+                    if (expandedId == large.id) {
+                        val mediums = allTags.filter { it.parentId == large.id }.sortedBy { it.sortOrder }
+                        mediums.forEach { medium ->
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(selected = selectedTagId == medium.id, onClick = { onSelect(medium.id) })
+                                    Text(medium.name, modifier = Modifier.weight(1f))
+                                    if (allTags.any { it.parentId == medium.id }) {
+                                        TextButton(onClick = {
+                                            expandedMediumId = if (expandedMediumId == medium.id) null else medium.id
+                                        }) { Text(if (expandedMediumId == medium.id) "折りたたむ" else "展開") }
+                                    }
                                 }
                             }
-                            // 小カテゴリ（展開時）
-                            if (isMidExpanded) {
-                                smallTags.forEach { small ->
-                                    Row(modifier = Modifier.fillMaxWidth().clickable { onSelect(small.id) }
-                                        .padding(start = 48.dp, top = 2.dp, bottom = 2.dp, end = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically) {
-                                        RadioButton(selected = selectedTagId == small.id, onClick = { onSelect(small.id) })
-                                        Text(small.name, style = MaterialTheme.typography.bodySmall)
+                            if (expandedMediumId == medium.id) {
+                                val smalls = allTags.filter { it.parentId == medium.id }.sortedBy { it.sortOrder }
+                                smalls.forEach { small ->
+                                    item {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(start = 32.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RadioButton(selected = selectedTagId == small.id, onClick = { onSelect(small.id) })
+                                            Text(small.name)
+                                        }
                                     }
                                 }
                             }
@@ -432,7 +433,7 @@ fun DateRangeDialog(
     )
 }
 
-// ── 一括タグ付けダイアログ ──
+// ── 一括タグ付けダイアログ（全階層のタグを自由に選択可能） ──
 @Composable
 fun BulkTagDialog(
     allTags: List<Tag>,
@@ -440,33 +441,98 @@ fun BulkTagDialog(
     onDismiss: () -> Unit
 ) {
     val selectedTagIds = remember { mutableStateOf(setOf<Int>()) }
-    val largeTags = allTags.filter { it.level == 1 }
+    val largeTags = allTags.filter { it.level == 1 }.sortedBy { it.sortOrder }
+    var expandedLargeId by remember { mutableStateOf<Int?>(null) }
+    var expandedMediumId by remember { mutableStateOf<Int?>(null) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("タグを付ける") },
         text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                items(largeTags) { large ->
-                    val midTags = allTags.filter { it.parentId == large.id }
-                    if (midTags.isEmpty()) {
-                        TagCheckRow(tag = large, selected = large.id in selectedTagIds.value) {
-                            selectedTagIds.value = selectedTagIds.value.toggle(large.id)
-                        }
-                    } else {
-                        Text(large.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 2.dp))
-                        midTags.forEach { mid ->
-                            val smallTags = allTags.filter { it.parentId == mid.id }
-                            if (smallTags.isEmpty()) {
-                                TagCheckRow(tag = mid, selected = mid.id in selectedTagIds.value, indent = 16.dp) {
-                                    selectedTagIds.value = selectedTagIds.value.toggle(mid.id)
+            LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                largeTags.forEach { large ->
+                    val midTags = allTags.filter { it.parentId == large.id }.sortedBy { it.sortOrder }
+                    val isLargeExpanded = expandedLargeId == large.id
+
+                    // 大カテゴリ行（常にチェックボックス付き）
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                selectedTagIds.value = selectedTagIds.value.toggle(large.id)
+                            }.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = large.id in selectedTagIds.value,
+                                onCheckedChange = { selectedTagIds.value = selectedTagIds.value.toggle(large.id) }
+                            )
+                            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(parseColor(large.color)))
+                            Spacer(Modifier.width(8.dp))
+                            Text(large.name, style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            if (midTags.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { expandedLargeId = if (isLargeExpanded) null else large.id },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        if (isLargeExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        null, modifier = Modifier.size(18.dp)
+                                    )
                                 }
-                            } else {
-                                Text(mid.name, style = MaterialTheme.typography.labelMedium,
-                                    modifier = Modifier.padding(start = 24.dp, top = 4.dp))
+                            }
+                        }
+                    }
+
+                    // 中カテゴリ（展開時）
+                    if (isLargeExpanded) {
+                        midTags.forEach { mid ->
+                            val smallTags = allTags.filter { it.parentId == mid.id }.sortedBy { it.sortOrder }
+                            val isMidExpanded = expandedMediumId == mid.id
+
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        selectedTagIds.value = selectedTagIds.value.toggle(mid.id)
+                                    }.padding(start = 24.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = mid.id in selectedTagIds.value,
+                                        onCheckedChange = { selectedTagIds.value = selectedTagIds.value.toggle(mid.id) }
+                                    )
+                                    Text(mid.name, style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f))
+                                    if (smallTags.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { expandedMediumId = if (isMidExpanded) null else mid.id },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                if (isMidExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                null, modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 小カテゴリ（展開時）
+                            if (isMidExpanded) {
                                 smallTags.forEach { small ->
-                                    TagCheckRow(tag = small, selected = small.id in selectedTagIds.value, indent = 32.dp) {
-                                        selectedTagIds.value = selectedTagIds.value.toggle(small.id)
+                                    item {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().clickable {
+                                                selectedTagIds.value = selectedTagIds.value.toggle(small.id)
+                                            }.padding(start = 48.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = small.id in selectedTagIds.value,
+                                                onCheckedChange = { selectedTagIds.value = selectedTagIds.value.toggle(small.id) }
+                                            )
+                                            Text(small.name, style = MaterialTheme.typography.bodySmall)
+                                        }
                                     }
                                 }
                             }
@@ -483,17 +549,6 @@ fun BulkTagDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } }
     )
-}
-
-@Composable
-private fun TagCheckRow(tag: Tag, selected: Boolean, indent: Dp = 0.dp, onToggle: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().clickable { onToggle() }
-        .padding(start = indent + 8.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Checkbox(checked = selected, onCheckedChange = { onToggle() })
-        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(parseColor(tag.color)))
-        Text(tag.name, style = MaterialTheme.typography.bodyMedium)
-    }
 }
 
 // ── TagFilterPickerDialog (後方互換) ──
