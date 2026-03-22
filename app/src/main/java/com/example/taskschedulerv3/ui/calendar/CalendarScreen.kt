@@ -87,7 +87,7 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
                 )
                 CalendarViewMode.WEEK -> WeekView(
                     selectedDate = selectedDate,
-                    tasks = allTasks,
+                    tasks = allTasks.filter { it.scheduleType != ScheduleType.RECURRING },
                     onDateSelected = { date ->
                         vm.selectDate(date)
                         navController.navigate(Screen.ScheduleList.createRoute(date))

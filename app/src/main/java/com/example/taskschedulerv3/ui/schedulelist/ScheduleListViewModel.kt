@@ -7,8 +7,10 @@ import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.*
 import com.example.taskschedulerv3.data.repository.TagRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
+import com.example.taskschedulerv3.util.RecurrenceCalculator
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
@@ -45,6 +47,11 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         val showRecurring = ScheduleType.RECURRING in filter.scheduleTypes
         var result = if (showRecurring) list
                      else list.filter { it.scheduleType != ScheduleType.RECURRING }
+
+        // When showing recurring tasks, also include them on dates they occur on
+        // (recurring tasks' startDate is the original creation date, not today)
+        // We mark recurring tasks to be included in date-based filtering later
+        val _ = showRecurring // placeholder, actual date filtering happens in UI
         // Completion filter
         result = when (filter.completionStatus) {
             CompletionFilter.INCOMPLETE -> result.filter { !it.isCompleted }

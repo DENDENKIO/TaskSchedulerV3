@@ -32,6 +32,7 @@ import com.example.taskschedulerv3.navigation.Screen
 import com.example.taskschedulerv3.ui.calendar.PriorityBadge
 import com.example.taskschedulerv3.ui.components.buildPath
 import com.example.taskschedulerv3.ui.tag.parseColor
+import com.example.taskschedulerv3.util.RecurrenceCalculator
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,9 +76,44 @@ fun ScheduleListScreen(
     // Apply tag filter + date filter in UI
     val displayedTasks = run {
         var result = if (tagFilteredTaskIds != null) tasks.filter { it.id in tagFilteredTaskIds!! } else tasks
-        if (filterDate.isNotEmpty()) result = result.filter { it.startDate == filterDate }
-        if (filterDateFrom.isNotEmpty()) result = result.filter { it.startDate >= filterDateFrom }
-        if (filterDateTo.isNotEmpty())   result = result.filter { it.startDate <= filterDateTo }
+        // Date filtering: recurring tasks match via RecurrenceCalculator, not startDate
+        if (filterDate.isNotEmpty()) {
+            val filterLocalDate = try { LocalDate.parse(filterDate) } catch (_: Exception) { null }
+            result = result.filter { task ->
+                if (task.scheduleType == ScheduleType.RECURRING && filterLocalDate != null) {
+                    RecurrenceCalculator.occursOn(task, filterLocalDate)
+                } else if (task.scheduleType == ScheduleType.PERIOD && filterLocalDate != null) {
+                    RecurrenceCalculator.getPeriodDatesInRange(task, filterLocalDate, filterLocalDate).isNotEmpty()
+                } else {
+                    task.startDate == filterDate
+                }
+            }
+        }
+        if (filterDateFrom.isNotEmpty()) {
+            val fromDate = try { LocalDate.parse(filterDateFrom) } catch (_: Exception) { null }
+            result = result.filter { task ->
+                if (task.scheduleType == ScheduleType.RECURRING && fromDate != null) {
+                    // Recurring tasks: include if any occurrence >= fromDate
+                    // Check if the task's recurrence range overlaps with fromDate onward
+                    val taskStart = try { LocalDate.parse(task.startDate) } catch (_: Exception) { null }
+                    val taskEnd = task.recurrenceEndDate?.let { try { LocalDate.parse(it) } catch (_: Exception) { null } }
+                    taskStart != null && (taskEnd == null || !taskEnd.isBefore(fromDate))
+                } else {
+                    task.startDate >= filterDateFrom
+                }
+            }
+        }
+        if (filterDateTo.isNotEmpty()) {
+            val toDate = try { LocalDate.parse(filterDateTo) } catch (_: Exception) { null }
+            result = result.filter { task ->
+                if (task.scheduleType == ScheduleType.RECURRING && toDate != null) {
+                    val taskStart = try { LocalDate.parse(task.startDate) } catch (_: Exception) { null }
+                    taskStart != null && !taskStart.isAfter(toDate)
+                } else {
+                    task.startDate <= filterDateTo
+                }
+            }
+        }
         result
     }
 
@@ -262,7 +298,14 @@ fun ScheduleListScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.weight(1f)) {
-                    val grouped = displayedTasks.groupBy { it.startDate }
+                    // When a specific date filter is active, group recurring tasks under that date
+                    val grouped = displayedTasks.groupBy { task ->
+                        if (task.scheduleType == ScheduleType.RECURRING && filterDate.isNotEmpty()) {
+                            filterDate
+                        } else {
+                            task.startDate
+                        }
+                    }
                     grouped.forEach { (date, dateTasks) ->
                         item {
                             Text(
