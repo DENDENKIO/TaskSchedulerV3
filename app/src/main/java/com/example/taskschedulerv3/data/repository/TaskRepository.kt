@@ -10,6 +10,7 @@ class TaskRepository(private val dao: TaskDao) {
     suspend fun getById(id: Int): Task? = dao.getById(id)
     fun search(query: String): Flow<List<Task>> = dao.searchByTitle(query)
     fun getDeleted(): Flow<List<Task>> = dao.getDeleted()
+    fun getIndefinite(): Flow<List<Task>> = dao.getIndefiniteTasks()
 
     suspend fun insert(task: Task): Long = dao.insert(task)
     suspend fun update(task: Task) = dao.update(task)
