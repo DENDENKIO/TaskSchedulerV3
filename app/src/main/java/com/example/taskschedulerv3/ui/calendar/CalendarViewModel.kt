@@ -30,7 +30,16 @@ data class MonthDayRow(
     val isHoliday: Boolean,       // 日曜=true
     val isSaturday: Boolean,
     /** 予定表示行: "大-中-小：タイトル" */
-    val taskLines: List<String>
+    val taskLines: List<String>,
+    /** この日に期間予定(PERIOD)が1件以上存在する場合 true */
+    val hasRangeTask: Boolean = false
+)
+
+/** ガントチャート1行分のデータ */
+data class GanttRow(
+    val task: Task,
+    /** この月内での対象日セット(yyyy-MM-dd) */
+    val activeDatesInMonth: Set<String>
 )
 
 class CalendarViewModel(app: Application) : AndroidViewModel(app) {
@@ -63,11 +72,9 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
 
     // taskId → Set<tagId> mapping (crossRef table を監視)
     private val _taskTagMap: StateFlow<Map<Int, Set<Int>>> = run {
-        // Observe crossRef table changes by joining with tasks flow
         allTasks.flatMapLatest { tasks ->
             if (tasks.isEmpty()) flowOf(emptyMap())
             else {
-                // Collect all crossRefs for all tasks
                 val flows = tasks.map { task ->
                     db.taskTagCrossRefDao().getTagsByTaskId(task.id)
                         .map { tags -> task.id to tags.map { it.id }.toSet() }
@@ -77,12 +84,34 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
     }
 
-    // --- Month day rows for MonthView list ---
+    // --- Month day rows for MonthView horizontal grid ---
     val monthDayRows: StateFlow<List<MonthDayRow>> = combine(
         allTasks, allTags, _taskTagMap, _currentYear, _currentMonth
     ) { tasks, tags, tagMap, year, month ->
         buildMonthDayRows(tasks, tags, tagMap, year, month)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- Gantt rows for period tasks in current month ---
+    val ganttRows: StateFlow<List<GanttRow>> = combine(
+        allTasks, _currentYear, _currentMonth
+    ) { tasks, year, month ->
+        buildGanttRows(tasks, year, month)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun buildGanttRows(tasks: List<Task>, year: Int, month: Int): List<GanttRow> {
+        val monthStart = LocalDate.of(year, month, 1)
+        val monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth())
+        return tasks
+            .filter { it.scheduleType == ScheduleType.PERIOD }
+            .mapNotNull { task ->
+                val dates = RecurrenceCalculator.getPeriodDatesInRange(task, monthStart, monthEnd)
+                if (dates.isEmpty()) null
+                else GanttRow(
+                    task = task,
+                    activeDatesInMonth = dates.map { DateUtils.format(it) }.toSet()
+                )
+            }
+    }
 
     private fun buildMonthDayRows(
         tasks: List<Task>,
@@ -94,30 +123,34 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         val tagById = tags.associateBy { it.id }
         val daysInMonth = DateUtils.daysInMonth(year, month)
         val todayStr = DateUtils.today()
-        val rows = mutableListOf<MonthDayRow>()
+        val monthStart = LocalDate.of(year, month, 1)
+        val monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth())
 
+        // 期間予定が存在する日付セット
+        val rangeDateSet = mutableSetOf<String>()
+        tasks.filter { it.scheduleType == ScheduleType.PERIOD }.forEach { task ->
+            RecurrenceCalculator.getPeriodDatesInRange(task, monthStart, monthEnd)
+                .forEach { rangeDateSet.add(DateUtils.format(it)) }
+        }
+
+        val rows = mutableListOf<MonthDayRow>()
         for (day in 1..daysInMonth) {
             val dateStr = "%04d-%02d-%02d".format(year, month, day)
             val date = DateUtils.parse(dateStr)
             val dow = date.dayOfWeek
             val dowLabel = when (dow) {
-                java.time.DayOfWeek.MONDAY -> "月"
-                java.time.DayOfWeek.TUESDAY -> "火"
+                java.time.DayOfWeek.MONDAY    -> "月"
+                java.time.DayOfWeek.TUESDAY   -> "火"
                 java.time.DayOfWeek.WEDNESDAY -> "水"
-                java.time.DayOfWeek.THURSDAY -> "木"
-                java.time.DayOfWeek.FRIDAY -> "金"
-                java.time.DayOfWeek.SATURDAY -> "土"
-                else -> "日"
+                java.time.DayOfWeek.THURSDAY  -> "木"
+                java.time.DayOfWeek.FRIDAY    -> "金"
+                java.time.DayOfWeek.SATURDAY  -> "土"
+                else                          -> "日"
             }
 
-            // Tasks active on this date (RECURRING excluded from calendar/list)
+            // スポット予定(NORMAL)のみ日付セル内縦書き表示
             val dayTasks = tasks.filter { task ->
-                if (task.scheduleType == ScheduleType.RECURRING) return@filter false
-                when (task.scheduleType) {
-                    ScheduleType.NORMAL -> task.startDate == dateStr
-                    ScheduleType.PERIOD -> RecurrenceCalculator.getPeriodDatesInRange(task, date, date).isNotEmpty()
-                    else -> false
-                }
+                task.scheduleType == ScheduleType.NORMAL && task.startDate == dateStr
             }
 
             val sortedTasks = dayTasks.sortedWith(
@@ -137,7 +170,8 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                 isToday = dateStr == todayStr,
                 isHoliday = dow == java.time.DayOfWeek.SUNDAY,
                 isSaturday = dow == java.time.DayOfWeek.SATURDAY,
-                taskLines = taskLines
+                taskLines = taskLines,
+                hasRangeTask = dateStr in rangeDateSet
             ))
         }
         return rows
@@ -164,39 +198,29 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         return names.joinToString("-")
     }
 
-    // --- Expanded task dates (NORMAL + PERIOD + RECURRING) for dot/bar display ---
-    // Returns a Set<String> of all yyyy-MM-dd dates that have at least one task
+    // --- Expanded task dates for dot/bar display ---
     val allTaskDates: StateFlow<Set<String>> = combine(
-        allTasks,
-        _currentYear,
-        _currentMonth,
-        _viewMode
+        allTasks, _currentYear, _currentMonth, _viewMode
     ) { tasks, year, month, mode ->
         val dates = mutableSetOf<String>()
         val (rangeStart, rangeEnd) = when (mode) {
-            CalendarViewMode.YEAR -> {
-                LocalDate.of(year, 1, 1) to LocalDate.of(year, 12, 31)
-            }
+            CalendarViewMode.YEAR  -> LocalDate.of(year, 1, 1) to LocalDate.of(year, 12, 31)
             CalendarViewMode.MONTH -> {
                 LocalDate.of(year, month, 1) to
                     LocalDate.of(year, month, 1).with(TemporalAdjusters.lastDayOfMonth())
             }
-            CalendarViewMode.WEEK -> {
+            CalendarViewMode.WEEK  -> {
                 val sel = DateUtils.parse(_selectedDate.value)
                 val start = sel.with(java.time.DayOfWeek.MONDAY)
                 start to start.plusDays(6)
             }
-            CalendarViewMode.DAY -> {
-                val d = DateUtils.parse(_selectedDate.value)
-                d to d
+            CalendarViewMode.DAY   -> {
+                val d = DateUtils.parse(_selectedDate.value); d to d
             }
         }
-        // RECURRING excluded from calendar dot display
         tasks.filter { it.scheduleType != ScheduleType.RECURRING }.forEach { task ->
             when (task.scheduleType) {
-                ScheduleType.NORMAL -> {
-                    if (task.startDate.isNotBlank()) dates.add(task.startDate)
-                }
+                ScheduleType.NORMAL -> { if (task.startDate.isNotBlank()) dates.add(task.startDate) }
                 ScheduleType.PERIOD -> {
                     RecurrenceCalculator.getPeriodDatesInRange(task, rangeStart, rangeEnd)
                         .forEach { dates.add(DateUtils.format(it)) }
@@ -207,7 +231,6 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         dates
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
-    // --- Period tasks that span a given date range (for WeekView bars) ---
     fun getPeriodTasksForRange(rangeStart: LocalDate, rangeEnd: LocalDate): List<Pair<Task, List<LocalDate>>> {
         return allTasks.value
             .filter { it.scheduleType == ScheduleType.PERIOD }
@@ -217,10 +240,8 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
             }
     }
 
-    // --- Tasks for selected date (RECURRING excluded) ---
     val tasksForSelectedDate: StateFlow<List<Task>> = combine(
-        allTasks,
-        _selectedDate
+        allTasks, _selectedDate
     ) { tasks, dateStr ->
         if (dateStr.isBlank()) return@combine emptyList()
         val date = DateUtils.parse(dateStr)
@@ -234,15 +255,14 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- Today summary ---
     val todaySummary: StateFlow<TodaySummary> = allTasks
         .map { tasks ->
             val todayStr = DateUtils.today()
             val today = DateUtils.parse(todayStr)
             val todayTasks = tasks.filter { task ->
                 when (task.scheduleType) {
-                    ScheduleType.NORMAL -> task.startDate == todayStr
-                    ScheduleType.PERIOD -> RecurrenceCalculator.getPeriodDatesInRange(task, today, today).isNotEmpty()
+                    ScheduleType.NORMAL    -> task.startDate == todayStr
+                    ScheduleType.PERIOD    -> RecurrenceCalculator.getPeriodDatesInRange(task, today, today).isNotEmpty()
                     ScheduleType.RECURRING -> RecurrenceCalculator.occursOn(task, today)
                 }
             }
@@ -257,14 +277,12 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TodaySummary(DateUtils.today(), 0, null, null))
 
-    // --- TaskCompletion for recurring tasks ---
     fun isRecurringCompleted(taskId: Int, date: String): Flow<Boolean> =
         completionDao.getByTaskId(taskId).map { list -> list.any { it.completedDate == date } }
 
     fun toggleRecurringComplete(taskId: Int, date: String, currentlyCompleted: Boolean) =
         viewModelScope.launch {
             if (currentlyCompleted) {
-                // Find and delete
                 val list = completionDao.getByTaskId(taskId).first()
                 list.find { it.completedDate == date }?.let { completionDao.delete(it) }
             } else {
@@ -272,7 +290,6 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-    // --- Navigation ---
     fun setViewMode(mode: CalendarViewMode) { _viewMode.value = mode }
     fun selectDate(date: String) {
         _selectedDate.value = date
@@ -294,7 +311,7 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun previousYear() { _currentYear.value-- }
-    fun nextYear() { _currentYear.value++ }
+    fun nextYear()     { _currentYear.value++ }
 
     fun previousWeek() {
         val d = DateUtils.parse(_selectedDate.value).minusWeeks(1)
@@ -316,7 +333,6 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         _selectedDate.value = DateUtils.format(d)
     }
 
-    // --- Actions ---
     fun deleteTask(task: Task) = viewModelScope.launch { repo.softDelete(task.id) }
     fun toggleComplete(task: Task) = viewModelScope.launch { repo.setCompleted(task.id, !task.isCompleted) }
 }

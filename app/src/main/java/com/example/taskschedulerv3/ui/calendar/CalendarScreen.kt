@@ -27,15 +27,16 @@ import com.example.taskschedulerv3.util.DateUtils
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewModel()) {
-    val viewMode by vm.viewMode.collectAsState()
+    val viewMode     by vm.viewMode.collectAsState()
     val selectedDate by vm.selectedDate.collectAsState()
-    val currentYear by vm.currentYear.collectAsState()
+    val currentYear  by vm.currentYear.collectAsState()
     val currentMonth by vm.currentMonth.collectAsState()
     val tasksForDate by vm.tasksForSelectedDate.collectAsState()
-    val allTasks by vm.allTasks.collectAsState()
+    val allTasks     by vm.allTasks.collectAsState()
     val allTaskDates by vm.allTaskDates.collectAsState()
-    val summary by vm.todaySummary.collectAsState()
+    val summary      by vm.todaySummary.collectAsState()
     val monthDayRows by vm.monthDayRows.collectAsState()
+    val ganttRows    by vm.ganttRows.collectAsState()
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("タスクスケジューラ") }) },
@@ -46,22 +47,24 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // Today summary card
             TodaySummaryCard(summary)
 
-            // Mode tab row
-            val modes = listOf(CalendarViewMode.YEAR to "年", CalendarViewMode.MONTH to "月", CalendarViewMode.WEEK to "週", CalendarViewMode.DAY to "日")
+            val modes = listOf(
+                CalendarViewMode.YEAR  to "年",
+                CalendarViewMode.MONTH to "月",
+                CalendarViewMode.WEEK  to "週",
+                CalendarViewMode.DAY   to "日"
+            )
             TabRow(selectedTabIndex = modes.indexOfFirst { it.first == viewMode }) {
                 modes.forEach { (mode, label) ->
                     Tab(
-                        selected = viewMode == mode,
-                        onClick = { vm.setViewMode(mode) },
-                        text = { Text(label) }
+                        selected  = viewMode == mode,
+                        onClick   = { vm.setViewMode(mode) },
+                        text      = { Text(label) }
                     )
                 }
             }
 
-            // Calendar body
             when (viewMode) {
                 CalendarViewMode.YEAR -> YearView(
                     year = currentYear,
@@ -71,19 +74,20 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
                         vm.setViewMode(CalendarViewMode.MONTH)
                     },
                     onPreviousYear = { vm.previousYear() },
-                    onNextYear = { vm.nextYear() }
+                    onNextYear     = { vm.nextYear() }
                 )
                 CalendarViewMode.MONTH -> MonthView(
-                    year = currentYear,
-                    month = currentMonth,
-                    selectedDate = selectedDate,
-                    dayRows = monthDayRows,
+                    year           = currentYear,
+                    month          = currentMonth,
+                    selectedDate   = selectedDate,
+                    dayRows        = monthDayRows,
+                    ganttRows      = ganttRows,
                     onDateSelected = { date ->
                         vm.selectDate(date)
                         navController.navigate(Screen.ScheduleList.createRoute(date))
                     },
                     onPreviousMonth = { vm.previousMonth() },
-                    onNextMonth = { vm.nextMonth() }
+                    onNextMonth     = { vm.nextMonth() }
                 )
                 CalendarViewMode.WEEK -> WeekView(
                     selectedDate = selectedDate,
@@ -93,14 +97,14 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
                         navController.navigate(Screen.ScheduleList.createRoute(date))
                     },
                     onPreviousWeek = { vm.previousWeek() },
-                    onNextWeek = { vm.nextWeek() }
+                    onNextWeek     = { vm.nextWeek() }
                 )
                 CalendarViewMode.DAY -> Column(modifier = Modifier.fillMaxSize()) {
                     DayView(
                         selectedDate = selectedDate,
-                        tasks = tasksForDate,
+                        tasks        = tasksForDate,
                         onPreviousDay = { vm.previousDay() },
-                        onNextDay = { vm.nextDay() }
+                        onNextDay     = { vm.nextDay() }
                     )
                 }
             }
@@ -112,12 +116,12 @@ fun CalendarScreen(navController: NavController, vm: CalendarViewModel = viewMod
 fun TodaySummaryCard(summary: TodaySummary) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment     = Alignment.CenterVertically
         ) {
             Column {
                 Text("今日 ${summary.date}", style = MaterialTheme.typography.labelMedium,
@@ -158,10 +162,10 @@ fun SelectedDateTaskList(
         LazyColumn {
             items(tasks) { task ->
                 TaskRow(
-                    task = task,
-                    onDelete = { onDelete(task) },
+                    task            = task,
+                    onDelete        = { onDelete(task) },
                     onToggleComplete = { onToggleComplete(task) },
-                    onClick = { onTaskClick(task) }
+                    onClick         = { onTaskClick(task) }
                 )
             }
         }
@@ -176,7 +180,9 @@ fun TaskRow(
     onClick: () -> Unit = {}
 ) {
     val priorityColor = when (task.priority) {
-        0 -> Color(0xFFE53935); 2 -> Color(0xFF43A047); else -> Color(0xFFFB8C00)
+        0    -> Color(0xFFE53935)
+        2    -> Color(0xFF43A047)
+        else -> Color(0xFFFB8C00)
     }
     Row(
         modifier = Modifier
@@ -184,15 +190,16 @@ fun TaskRow(
             .padding(horizontal = 12.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(modifier = Modifier.width(4.dp).height(40.dp).background(priorityColor, MaterialTheme.shapes.extraSmall))
+        Box(modifier = Modifier.width(4.dp).height(40.dp)
+            .background(priorityColor, MaterialTheme.shapes.extraSmall))
         Spacer(Modifier.width(8.dp))
         Checkbox(checked = task.isCompleted, onCheckedChange = { onToggleComplete() })
         Column(
             modifier = Modifier.weight(1f).padding(start = 4.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Schedule type icon
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 when (task.scheduleType) {
                     ScheduleType.PERIOD -> Icon(
                         Icons.Default.DateRange, contentDescription = "期間",
@@ -232,8 +239,8 @@ fun TaskRow(
 @Composable
 fun PriorityBadge(priority: Int) {
     val (color, label) = when (priority) {
-        0 -> Pair(Color(0xFFE53935), "高")
-        2 -> Pair(Color(0xFF43A047), "低")
+        0    -> Pair(Color(0xFFE53935), "高")
+        2    -> Pair(Color(0xFF43A047), "低")
         else -> Pair(Color(0xFFFB8C00), "中")
     }
     Surface(color = color, shape = MaterialTheme.shapes.small) {
