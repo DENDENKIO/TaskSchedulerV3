@@ -18,28 +18,31 @@ import java.time.temporal.TemporalAdjusters
 
 enum class CalendarViewMode { YEAR, MONTH, WEEK, DAY }
 
-/** タグ1件と、そのタグに紐付くタスクid一覧 */
 data class TagTaskEntry(val tag: Tag, val taskIds: Set<Int>)
 
-/** 1日分の月リスト行データ */
+/** 1日分の月リスト行データ。taskLines は常に空リスト（縦書き表示廃止） */
 data class MonthDayRow(
-    val dateStr: String,          // yyyy-MM-dd
+    val dateStr: String,
     val dayOfMonth: Int,
-    val dayOfWeekLabel: String,   // 月/火/水...
+    val dayOfWeekLabel: String,
     val isToday: Boolean,
-    val isHoliday: Boolean,       // 日曜=true
+    val isHoliday: Boolean,
     val isSaturday: Boolean,
-    /** 予定表示行: "大-中-小：タイトル" */
-    val taskLines: List<String>,
-    /** この日に期間予定(PERIOD)が1件以上存在する場合 true */
+    val taskLines: List<String> = emptyList(),
     val hasRangeTask: Boolean = false
 )
 
-/** ガントチャート1行分のデータ */
+/**
+ * ガントチャート1行分。NORMAL(単日) ・ PERIOD(期間) 両対応。
+ * [activeDatesInMonth]: 当月内で表示対象となる日付セット(yyyy-MM-dd)
+ * [startDateInMonth]:   バー開始日（当月内最初の対象日）
+ * [endDateInMonth]:     バー終了日（当月内最後の対象日）
+ */
 data class GanttRow(
     val task: Task,
-    /** この月内での対象日セット(yyyy-MM-dd) */
-    val activeDatesInMonth: Set<String>
+    val activeDatesInMonth: Set<String>,
+    val startDateInMonth: String,
+    val endDateInMonth: String
 )
 
 class CalendarViewModel(app: Application) : AndroidViewModel(app) {
@@ -47,30 +50,24 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = TaskRepository(db.taskDao())
     private val completionDao = db.taskCompletionDao()
 
-    // --- View mode ---
     private val _viewMode = MutableStateFlow(CalendarViewMode.MONTH)
     val viewMode: StateFlow<CalendarViewMode> = _viewMode.asStateFlow()
 
-    // --- Selected date ---
     private val _selectedDate = MutableStateFlow(DateUtils.today())
     val selectedDate: StateFlow<String> = _selectedDate.asStateFlow()
 
-    // --- Current month/year for month & year views ---
     private val _currentYear = MutableStateFlow(LocalDate.now().year)
     val currentYear: StateFlow<Int> = _currentYear.asStateFlow()
 
     private val _currentMonth = MutableStateFlow(LocalDate.now().monthValue)
     val currentMonth: StateFlow<Int> = _currentMonth.asStateFlow()
 
-    // --- All tasks (base list) ---
     val allTasks: StateFlow<List<Task>> = repo.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- All tags ---
     private val allTags: StateFlow<List<Tag>> = db.tagDao().getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // taskId → Set<tagId> mapping (crossRef table を監視)
     private val _taskTagMap: StateFlow<Map<Int, Set<Int>>> = run {
         allTasks.flatMapLatest { tasks ->
             if (tasks.isEmpty()) flowOf(emptyMap())
@@ -84,14 +81,14 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
     }
 
-    // --- Month day rows for MonthView horizontal grid ---
+    // 日付セルには予定を表示しない。hasRangeTask はガント行ありのインジケーターのみ
     val monthDayRows: StateFlow<List<MonthDayRow>> = combine(
-        allTasks, allTags, _taskTagMap, _currentYear, _currentMonth
-    ) { tasks, tags, tagMap, year, month ->
-        buildMonthDayRows(tasks, tags, tagMap, year, month)
+        allTasks, _currentYear, _currentMonth
+    ) { tasks, year, month ->
+        buildMonthDayRows(tasks, year, month)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- Gantt rows for period tasks in current month ---
+    // NORMAL + PERIOD 全てをガントチャート行として生成。RECURRING は除外。
     val ganttRows: StateFlow<List<GanttRow>> = combine(
         allTasks, _currentYear, _currentMonth
     ) { tasks, year, month ->
@@ -101,40 +98,54 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
     private fun buildGanttRows(tasks: List<Task>, year: Int, month: Int): List<GanttRow> {
         val monthStart = LocalDate.of(year, month, 1)
         val monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth())
+
         return tasks
-            .filter { it.scheduleType == ScheduleType.PERIOD }
+            .filter { it.scheduleType != ScheduleType.RECURRING }   // RECURRING 完全除外
             .mapNotNull { task ->
-                val dates = RecurrenceCalculator.getPeriodDatesInRange(task, monthStart, monthEnd)
-                if (dates.isEmpty()) null
-                else GanttRow(
+                val dates: List<LocalDate> = when (task.scheduleType) {
+                    ScheduleType.NORMAL -> {
+                        val d = DateUtils.parse(task.startDate)
+                        if (d in monthStart..monthEnd) listOf(d) else emptyList()
+                    }
+                    ScheduleType.PERIOD ->
+                        RecurrenceCalculator.getPeriodDatesInRange(task, monthStart, monthEnd)
+                    else -> emptyList()
+                }
+                if (dates.isEmpty()) return@mapNotNull null
+                val dateStrs = dates.map { DateUtils.format(it) }.toSortedSet()
+                GanttRow(
                     task = task,
-                    activeDatesInMonth = dates.map { DateUtils.format(it) }.toSet()
+                    activeDatesInMonth = dateStrs,
+                    startDateInMonth = dateStrs.first(),
+                    endDateInMonth = dateStrs.last()
                 )
             }
+            .sortedWith(compareBy({ it.startDateInMonth }, { it.task.title }))
     }
 
-    private fun buildMonthDayRows(
-        tasks: List<Task>,
-        tags: List<Tag>,
-        tagMap: Map<Int, Set<Int>>,
-        year: Int,
-        month: Int
-    ): List<MonthDayRow> {
-        val tagById = tags.associateBy { it.id }
+    private fun buildMonthDayRows(tasks: List<Task>, year: Int, month: Int): List<MonthDayRow> {
         val daysInMonth = DateUtils.daysInMonth(year, month)
         val todayStr = DateUtils.today()
         val monthStart = LocalDate.of(year, month, 1)
         val monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth())
 
-        // 期間予定が存在する日付セット
-        val rangeDateSet = mutableSetOf<String>()
-        tasks.filter { it.scheduleType == ScheduleType.PERIOD }.forEach { task ->
-            RecurrenceCalculator.getPeriodDatesInRange(task, monthStart, monthEnd)
-                .forEach { rangeDateSet.add(DateUtils.format(it)) }
+        // ガント行がある日（インジケータードット用）
+        val ganttDateSet = mutableSetOf<String>()
+        tasks.filter { it.scheduleType != ScheduleType.RECURRING }.forEach { task ->
+            when (task.scheduleType) {
+                ScheduleType.NORMAL -> {
+                    val d = DateUtils.parse(task.startDate)
+                    if (d in monthStart..monthEnd) ganttDateSet.add(task.startDate)
+                }
+                ScheduleType.PERIOD -> {
+                    RecurrenceCalculator.getPeriodDatesInRange(task, monthStart, monthEnd)
+                        .forEach { ganttDateSet.add(DateUtils.format(it)) }
+                }
+                else -> {}
+            }
         }
 
-        val rows = mutableListOf<MonthDayRow>()
-        for (day in 1..daysInMonth) {
+        return (1..daysInMonth).map { day ->
             val dateStr = "%04d-%02d-%02d".format(year, month, day)
             val date = DateUtils.parse(dateStr)
             val dow = date.dayOfWeek
@@ -147,58 +158,19 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                 java.time.DayOfWeek.SATURDAY  -> "土"
                 else                          -> "日"
             }
-
-            // スポット予定(NORMAL)のみ日付セル内縦書き表示
-            val dayTasks = tasks.filter { task ->
-                task.scheduleType == ScheduleType.NORMAL && task.startDate == dateStr
-            }
-
-            val sortedTasks = dayTasks.sortedWith(
-                compareBy<Task> { it.startTime ?: "99:99" }.thenBy { it.title }
-            )
-
-            val taskLines = sortedTasks.map { task ->
-                val taskTagIds = tagMap[task.id] ?: emptySet()
-                val tagLabel = buildTagLabel(taskTagIds, tagById)
-                "$tagLabel：${task.title}"
-            }
-
-            rows.add(MonthDayRow(
+            MonthDayRow(
                 dateStr = dateStr,
                 dayOfMonth = day,
                 dayOfWeekLabel = dowLabel,
                 isToday = dateStr == todayStr,
                 isHoliday = dow == java.time.DayOfWeek.SUNDAY,
                 isSaturday = dow == java.time.DayOfWeek.SATURDAY,
-                taskLines = taskLines,
-                hasRangeTask = dateStr in rangeDateSet
-            ))
+                taskLines = emptyList(),            // 日付セル内に予定は表示しない
+                hasRangeTask = dateStr in ganttDateSet
+            )
         }
-        return rows
     }
 
-    private fun buildTagLabel(taskTagIds: Set<Int>, tagById: Map<Int, Tag>): String {
-        if (taskTagIds.isEmpty()) return "タグ無し"
-        val tags = taskTagIds.mapNotNull { tagById[it] }
-        if (tags.isEmpty()) return "タグ無し"
-        val maxLevel = tags.maxOf { it.level }
-        val preferred = tags.filter { it.level == maxLevel }
-            .minByOrNull { it.sortOrder } ?: tags.first()
-        return buildTagPath(preferred, tagById)
-    }
-
-    private fun buildTagPath(tag: Tag, tagById: Map<Int, Tag>): String {
-        val names = mutableListOf(tag.name)
-        var current = tag
-        while (current.parentId != null) {
-            val parent = tagById[current.parentId] ?: break
-            names.add(0, parent.name)
-            current = parent
-        }
-        return names.joinToString("-")
-    }
-
-    // --- Expanded task dates for dot/bar display ---
     val allTaskDates: StateFlow<Set<String>> = combine(
         allTasks, _currentYear, _currentMonth, _viewMode
     ) { tasks, year, month, mode ->
@@ -214,9 +186,7 @@ class CalendarViewModel(app: Application) : AndroidViewModel(app) {
                 val start = sel.with(java.time.DayOfWeek.MONDAY)
                 start to start.plusDays(6)
             }
-            CalendarViewMode.DAY   -> {
-                val d = DateUtils.parse(_selectedDate.value); d to d
-            }
+            CalendarViewMode.DAY   -> { val d = DateUtils.parse(_selectedDate.value); d to d }
         }
         tasks.filter { it.scheduleType != ScheduleType.RECURRING }.forEach { task ->
             when (task.scheduleType) {
