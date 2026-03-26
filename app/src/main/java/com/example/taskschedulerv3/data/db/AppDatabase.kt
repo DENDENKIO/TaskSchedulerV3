@@ -20,7 +20,7 @@ import com.example.taskschedulerv3.data.model.*
         TaskCompletion::class,
         PhotoTagCrossRef::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -37,7 +37,7 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
-        // Migration: v1 → v2: add photo_tag_cross_ref table
+        // Migration: v1 -> v2: add photo_tag_cross_ref table
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
@@ -53,6 +53,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration: v2 -> v3: add isIndefinite column to tasks
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE tasks ADD COLUMN isIndefinite INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -60,8 +69,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "task_scheduler.db"
                 )
-                .addMigrations(MIGRATION_1_2)
-                .build().also { INSTANCE = it }
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .build().also { INSTANCE = it }
             }
     }
 }
