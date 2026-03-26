@@ -26,7 +26,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val CELL_W: Dp = 56.dp
+private val CELL_W:  Dp = 56.dp
+private val LABEL_W: Dp = 80.dp   // タスク名コラム幅（日付行とガント行で共有）
 private val GANTT_ROW_H: Dp = 26.dp
 
 @Composable
@@ -65,29 +66,32 @@ fun MonthView(
 
         HorizontalDivider()
 
-        // 横スクロールを全セクションで共有する
+        // 横スクロールを日付行・ガント行で共有
         val sharedScroll = rememberScrollState()
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
 
-            // 日付横並びグリッド
+            // ── 日付横並びグリッド ──
             item {
                 Row(
-                    modifier = Modifier
-                        .horizontalScroll(sharedScroll)
-                        .padding(vertical = 4.dp)
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    dayRows.forEach { row ->
-                        DayCell(
-                            row = row,
-                            isSelected = row.dateStr == selectedDate,
-                            onClick = { onDateSelected(row.dateStr) }
-                        )
+                    // ガント行のタスク名山と幅を合わせるための空スペーサー
+                    Spacer(modifier = Modifier.width(LABEL_W))
+                    Row(modifier = Modifier.horizontalScroll(sharedScroll)) {
+                        dayRows.forEach { row ->
+                            DayCell(
+                                row = row,
+                                isSelected = row.dateStr == selectedDate,
+                                onClick = { onDateSelected(row.dateStr) }
+                            )
+                        }
                     }
                 }
             }
 
-            // ガントチャートセクション
+            // ── ガントチャートセクション ──
             if (ganttRows.isNotEmpty()) {
                 item {
                     HorizontalDivider(modifier = Modifier.padding(top = 2.dp))
@@ -110,7 +114,7 @@ fun MonthView(
     }
 }
 
-// ── 日付セル（予定縦書きなし・ドットインジケーターのみ） ──
+// ── 日付セル ──
 @Composable
 private fun DayCell(
     row: MonthDayRow,
@@ -122,7 +126,6 @@ private fun DayCell(
         row.isSaturday -> Color(0xFF1E88E5)
         else           -> MaterialTheme.colorScheme.onSurface
     }
-
     val cellBg = when {
         isSelected       -> MaterialTheme.colorScheme.primaryContainer
         row.isToday      -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
@@ -142,14 +145,12 @@ private fun DayCell(
             .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 曜日ラベル
         Text(
             text  = row.dayOfWeekLabel,
             style = MaterialTheme.typography.labelSmall,
             color = dateColor.copy(alpha = 0.75f),
             fontSize = 9.sp
         )
-        // 日付番号（今日は円形バッジ）
         Box(
             modifier = Modifier
                 .size(28.dp)
@@ -168,7 +169,6 @@ private fun DayCell(
                 color = if (row.isToday) MaterialTheme.colorScheme.onTertiary else dateColor
             )
         }
-        // ガント行ありの日は下部にドット
         if (row.hasRangeTask) {
             Spacer(Modifier.height(3.dp))
             Box(
@@ -191,7 +191,6 @@ private fun GanttChartRow(
     val ganttColor   = MaterialTheme.colorScheme.primary
     val onGanttColor = MaterialTheme.colorScheme.onPrimary
 
-    // 開始・終了の日の番号（dd）
     val startDay = remember(ganttRow.startDateInMonth) {
         ganttRow.startDateInMonth.takeLast(2).trimStart('0').ifEmpty { "0" }
     }
@@ -206,31 +205,29 @@ private fun GanttChartRow(
             .height(GANTT_ROW_H + 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // タスク名ラベル（固定80dp）
+        // タスク名ラベル（LABEL_W 固定—日付行のスペーサーと同幅）
         Text(
             text  = ganttRow.task.title,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
-                .width(80.dp)
+                .width(LABEL_W)
                 .padding(start = 8.dp, end = 4.dp)
         )
 
-        // 日付グリッドと幅を共有スクロールで同期
+        // 日付グリッドと届変を共有スクロールで同期
         Row(modifier = Modifier.horizontalScroll(sharedScroll)) {
-            dayRows.forEachIndexed { idx, dayRow ->
+            dayRows.forEach { dayRow ->
                 val isActive = dayRow.dateStr in ganttRow.activeDatesInMonth
                 val isStart  = dayRow.dateStr == ganttRow.startDateInMonth
                 val isEnd    = dayRow.dateStr == ganttRow.endDateInMonth
 
-                // セル形状
                 val shape = when {
-                    isSingleDay          -> RoundedCornerShape(50)
-                    isStart              -> RoundedCornerShape(topStart = 50f, bottomStart = 50f, topEnd = 0f, bottomEnd = 0f)
-                    isEnd                -> RoundedCornerShape(topStart = 0f, bottomStart = 0f, topEnd = 50f, bottomEnd = 50f)
-                    isActive             -> RoundedCornerShape(0)
-                    else                 -> RoundedCornerShape(0)
+                    isSingleDay -> RoundedCornerShape(50)
+                    isStart     -> RoundedCornerShape(topStart = 50f, bottomStart = 50f, topEnd = 0f, bottomEnd = 0f)
+                    isEnd       -> RoundedCornerShape(topStart = 0f, bottomStart = 0f, topEnd = 50f, bottomEnd = 50f)
+                    else        -> RoundedCornerShape(0)
                 }
 
                 Box(
@@ -240,8 +237,8 @@ private fun GanttChartRow(
                         .padding(
                             top    = 2.dp,
                             bottom = 2.dp,
-                            start  = if (isStart) 4.dp else 0.dp,
-                            end    = if (isEnd)   4.dp else 0.dp
+                            start  = if (isStart || isSingleDay) 4.dp else 0.dp,
+                            end    = if (isEnd   || isSingleDay) 4.dp else 0.dp
                         )
                         .clip(shape)
                         .background(if (isActive) ganttColor.copy(alpha = 0.82f) else Color.Transparent),
@@ -249,13 +246,9 @@ private fun GanttChartRow(
                 ) {
                     if (isActive) {
                         val label = when {
-                            // 単日予定: その日のみ日付表示
                             isSingleDay -> startDay
-                            // 開始日セル: 左端に開始日
                             isStart     -> startDay
-                            // 終了日セル: 右端に終了日
                             isEnd       -> endDay
-                            // 中間セル: 「・」
                             else        -> "・"
                         }
                         Text(
