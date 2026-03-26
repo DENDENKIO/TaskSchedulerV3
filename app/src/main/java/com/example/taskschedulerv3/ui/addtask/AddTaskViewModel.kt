@@ -37,6 +37,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val priority = MutableStateFlow(1)
     val notifyEnabled = MutableStateFlow(true)
     val notifyMinutesBefore = MutableStateFlow(10)
+    val isIndefinite = MutableStateFlow(false)  // 無期限登録フラグ
 
     // Tag selection
     val selectedTagIds = MutableStateFlow<Set<Int>>(emptySet())
@@ -89,6 +90,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             priority.value = t.priority
             notifyEnabled.value = t.notifyEnabled
             notifyMinutesBefore.value = t.notifyMinutesBefore
+            isIndefinite.value = t.isIndefinite
         }
         crossRefDao.getTagsByTaskId(taskId).first().let { tags ->
             selectedTagIds.value = tags.map { it.id }.toSet()
@@ -141,8 +143,8 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             id = editId ?: 0,
             title = title.value.trim(),
             description = description.value.trim().ifEmpty { null },
-            startDate = startDate.value,
-            endDate = endDate.value.ifEmpty { null },
+            startDate = if (isIndefinite.value) "" else startDate.value,
+            endDate = if (isIndefinite.value) null else endDate.value.ifEmpty { null },
             startTime = startTime.value.ifEmpty { null },
             endTime = endTime.value.ifEmpty { null },
             scheduleType = scheduleType.value,
@@ -152,6 +154,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             priority = priority.value,
             notifyEnabled = notifyEnabled.value,
             notifyMinutesBefore = notifyMinutesBefore.value,
+            isIndefinite = isIndefinite.value,
             updatedAt = System.currentTimeMillis()
         )
         val taskId = repo.insert(task).toInt()
@@ -163,34 +166,29 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             crossRefDao.insert(TaskTagCrossRef(taskId = finalId, tagId = tagId))
         }
 
-        // Photos — inherit task title, description, tags
+        // Photos
         val dateStr = startDate.value
         val taskTitle = title.value.trim().ifEmpty { null }
-        val taskDesc  = description.value.trim().ifEmpty { null }
+        val taskDesc = description.value.trim().ifEmpty { null }
         val photoTagDao = db.photoTagCrossRefDao()
         _pendingPhotoPaths.value.forEach { path ->
             val photoId = photoRepo.insert(
-                PhotoMemo(taskId = finalId, date = dateStr, imagePath = path,
-                    title = taskTitle, memo = taskDesc)
+                PhotoMemo(taskId = finalId, date = dateStr, imagePath = path, title = taskTitle, memo = taskDesc)
             ).toInt()
-            // Copy task tags to photo
             selectedTagIds.value.forEach { tagId ->
                 photoTagDao.insert(PhotoTagCrossRef(photoId = photoId, tagId = tagId))
             }
         }
         _pendingPhotoPaths.value = emptyList()
 
-        // Relations: insert new, delete removed
-        _addedRelatedIds.value.forEach { relId ->
-            relationRepo.insert(finalId, relId)
-        }
-        _removedRelatedIds.value.forEach { relId ->
-            relationRepo.deleteRelation(finalId, relId)
-        }
+        // Relations
+        _addedRelatedIds.value.forEach { relId -> relationRepo.insert(finalId, relId) }
+        _removedRelatedIds.value.forEach { relId -> relationRepo.deleteRelation(finalId, relId) }
 
-        // Alarm
-        AlarmScheduler.scheduleForTask(getApplication(), task.copy(id = finalId))
-
+        // Alarm (無期限の場合は通知なし)
+        if (!isIndefinite.value) {
+            AlarmScheduler.scheduleForTask(getApplication(), task.copy(id = finalId))
+        }
         _saveSuccess.value = true
     }
 }
