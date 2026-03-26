@@ -77,6 +77,7 @@ fun AddTaskScreen(
     val existingPhotos by vm.existingPhotos.collectAsState()
     val relatedTasks by vm.relatedTasks.collectAsState()
     val allTasksForPicker by vm.allTasks.collectAsState()
+    val isIndefinite by vm.isIndefinite.collectAsState()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
@@ -193,15 +194,52 @@ fun AddTaskScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Schedule type selector
-            Text("スケジュール種別", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(ScheduleType.NORMAL to "通常", ScheduleType.PERIOD to "期間", ScheduleType.RECURRING to "繰り返し").forEach { (type, label) ->
-                    FilterChip(
-                        selected = scheduleType == type,
-                        onClick = { vm.scheduleType.value = type },
-                        label = { Text(label) }
+            // ── 無期限トグル ──────────────────────────────
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isIndefinite)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else
+                        MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            "無期限予定",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Text(
+                            "日付を決めない予定として登録します",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = isIndefinite,
+                        onCheckedChange = { vm.isIndefinite.value = it }
                     )
+                }
+            }
+
+            // Schedule type selector（無期限がOFFの場合のみ表示）
+            if (!isIndefinite) {
+                Text("スケジュール種別", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(ScheduleType.NORMAL to "通常", ScheduleType.PERIOD to "期間", ScheduleType.RECURRING to "繰り返し").forEach { (type, label) ->
+                        FilterChip(
+                            selected = scheduleType == type,
+                            onClick = { vm.scheduleType.value = type },
+                            label = { Text(label) }
+                        )
+                    }
                 }
             }
 
@@ -217,99 +255,101 @@ fun AddTaskScreen(
                 label = { Text("メモ（任意）") }, modifier = Modifier.fillMaxWidth(), maxLines = 4
             )
 
-            // Date/time by schedule type
-            when (scheduleType) {
-                ScheduleType.NORMAL -> {
-                    OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (startDate.isBlank()) "日付を選択 *" else "日付: $startDate")
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { showStartTimePicker = true }, modifier = Modifier.weight(1f)) {
-                            Text(if (startTime.isBlank()) "開始時刻" else startTime)
+            // Date/time by schedule type（無期限がOFFの場合のみ表示）
+            if (!isIndefinite) {
+                when (scheduleType) {
+                    ScheduleType.NORMAL -> {
+                        OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (startDate.isBlank()) "日付を選択 *" else "日付: $startDate")
                         }
-                        OutlinedButton(onClick = { showEndTimePicker = true }, modifier = Modifier.weight(1f)) {
-                            Text(if (endTime.isBlank()) "終了時刻" else endTime)
-                        }
-                    }
-                }
-                ScheduleType.PERIOD -> {
-                    OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (startDate.isBlank()) "開始日を選択 *" else "開始日: $startDate")
-                    }
-                    OutlinedButton(onClick = { showEndDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (endDate.isBlank()) "終了日を選択 *" else "終了日: $endDate")
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { showStartTimePicker = true }, modifier = Modifier.weight(1f)) {
-                            Text(if (startTime.isBlank()) "開始時刻" else startTime)
-                        }
-                        OutlinedButton(onClick = { showEndTimePicker = true }, modifier = Modifier.weight(1f)) {
-                            Text(if (endTime.isBlank()) "終了時刻" else endTime)
-                        }
-                    }
-                }
-                ScheduleType.RECURRING -> {
-                    Text("繰り返しパターン", style = MaterialTheme.typography.labelLarge)
-                    var expandPattern by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = expandPattern, onExpandedChange = { expandPattern = it }) {
-                        OutlinedTextField(
-                            value = when (recurrencePattern) {
-                                RecurrencePattern.DAILY -> "毎日"; RecurrencePattern.WEEKLY -> "毎週"
-                                RecurrencePattern.BIWEEKLY -> "隔週"; RecurrencePattern.MONTHLY_DATE -> "毎月（日付指定）"
-                                RecurrencePattern.MONTHLY_WEEK -> "毎月（曜日指定）"; RecurrencePattern.YEARLY -> "毎年"
-                                null -> "選択してください"
-                            },
-                            onValueChange = {}, readOnly = true, label = { Text("パターン") },
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
-                        )
-                        ExposedDropdownMenu(expanded = expandPattern, onDismissRequest = { expandPattern = false }) {
-                            listOf(
-                                RecurrencePattern.DAILY to "毎日", RecurrencePattern.WEEKLY to "毎週",
-                                RecurrencePattern.BIWEEKLY to "隔週", RecurrencePattern.MONTHLY_DATE to "毎月（日付指定）",
-                                RecurrencePattern.MONTHLY_WEEK to "毎月（曜日指定）", RecurrencePattern.YEARLY to "毎年"
-                            ).forEach { (p, label) ->
-                                DropdownMenuItem(text = { Text(label) }, onClick = { vm.recurrencePattern.value = p; expandPattern = false })
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { showStartTimePicker = true }, modifier = Modifier.weight(1f)) {
+                                Text(if (startTime.isBlank()) "開始時刻" else startTime)
+                            }
+                            OutlinedButton(onClick = { showEndTimePicker = true }, modifier = Modifier.weight(1f)) {
+                                Text(if (endTime.isBlank()) "終了時刻" else endTime)
                             }
                         }
                     }
-                    if (recurrencePattern == RecurrencePattern.WEEKLY || recurrencePattern == RecurrencePattern.BIWEEKLY) {
-                        Text("曜日指定", style = MaterialTheme.typography.labelLarge)
-                        val selectedDays = remember(recurrenceDays) {
-                            recurrenceDays.split(",")
-                                .mapNotNull { it.trim().toIntOrNull() }
-                                .toSet()
+                    ScheduleType.PERIOD -> {
+                        OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (startDate.isBlank()) "開始日を選択 *" else "開始日: $startDate")
                         }
-                        val dayOptions = listOf(
-                            1 to "月", 2 to "火", 3 to "水", 4 to "木", 5 to "金", 6 to "土", 7 to "日"
-                        )
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            dayOptions.forEach { (value, label) ->
-                                FilterChip(
-                                    selected = value in selectedDays,
-                                    onClick = {
-                                        val newSet = if (value in selectedDays) {
-                                            selectedDays - value
-                                        } else {
-                                            selectedDays + value
-                                        }
-                                        vm.recurrenceDays.value = newSet.sorted().joinToString(",")
-                                    },
-                                    label = { Text(label) }
-                                )
+                        OutlinedButton(onClick = { showEndDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (endDate.isBlank()) "終了日を選択 *" else "終了日: $endDate")
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { showStartTimePicker = true }, modifier = Modifier.weight(1f)) {
+                                Text(if (startTime.isBlank()) "開始時刻" else startTime)
+                            }
+                            OutlinedButton(onClick = { showEndTimePicker = true }, modifier = Modifier.weight(1f)) {
+                                Text(if (endTime.isBlank()) "終了時刻" else endTime)
                             }
                         }
                     }
-                    OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (startDate.isBlank()) "開始日を選択 *" else "開始日: $startDate")
-                    }
-                    OutlinedButton(onClick = { showEndDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (recurrenceEndDate.isBlank()) "繰り返し終了日（未設定=無期限）" else "終了日: $recurrenceEndDate")
-                    }
-                    OutlinedButton(onClick = { showStartTimePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (startTime.isBlank()) "時刻を選択" else "時刻: $startTime")
+                    ScheduleType.RECURRING -> {
+                        Text("繰り返しパターン", style = MaterialTheme.typography.labelLarge)
+                        var expandPattern by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(expanded = expandPattern, onExpandedChange = { expandPattern = it }) {
+                            OutlinedTextField(
+                                value = when (recurrencePattern) {
+                                    RecurrencePattern.DAILY -> "毎日"; RecurrencePattern.WEEKLY -> "毎週"
+                                    RecurrencePattern.BIWEEKLY -> "隔週"; RecurrencePattern.MONTHLY_DATE -> "毎月（日付指定）"
+                                    RecurrencePattern.MONTHLY_WEEK -> "毎月（曜日指定）"; RecurrencePattern.YEARLY -> "毎年"
+                                    null -> "選択してください"
+                                },
+                                onValueChange = {}, readOnly = true, label = { Text("パターン") },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
+                            )
+                            ExposedDropdownMenu(expanded = expandPattern, onDismissRequest = { expandPattern = false }) {
+                                listOf(
+                                    RecurrencePattern.DAILY to "毎日", RecurrencePattern.WEEKLY to "毎週",
+                                    RecurrencePattern.BIWEEKLY to "隔週", RecurrencePattern.MONTHLY_DATE to "毎月（日付指定）",
+                                    RecurrencePattern.MONTHLY_WEEK to "毎月（曜日指定）", RecurrencePattern.YEARLY to "毎年"
+                                ).forEach { (p, label) ->
+                                    DropdownMenuItem(text = { Text(label) }, onClick = { vm.recurrencePattern.value = p; expandPattern = false })
+                                }
+                            }
+                        }
+                        if (recurrencePattern == RecurrencePattern.WEEKLY || recurrencePattern == RecurrencePattern.BIWEEKLY) {
+                            Text("曜日指定", style = MaterialTheme.typography.labelLarge)
+                            val selectedDays = remember(recurrenceDays) {
+                                recurrenceDays.split(",")
+                                    .mapNotNull { it.trim().toIntOrNull() }
+                                    .toSet()
+                            }
+                            val dayOptions = listOf(
+                                1 to "月", 2 to "火", 3 to "水", 4 to "木", 5 to "金", 6 to "土", 7 to "日"
+                            )
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                dayOptions.forEach { (value, label) ->
+                                    FilterChip(
+                                        selected = value in selectedDays,
+                                        onClick = {
+                                            val newSet = if (value in selectedDays) {
+                                                selectedDays - value
+                                            } else {
+                                                selectedDays + value
+                                            }
+                                            vm.recurrenceDays.value = newSet.sorted().joinToString(",")
+                                        },
+                                        label = { Text(label) }
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (startDate.isBlank()) "開始日を選択 *" else "開始日: $startDate")
+                        }
+                        OutlinedButton(onClick = { showEndDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (recurrenceEndDate.isBlank()) "繰り返し終了日（未設定=無期限）" else "終了日: $recurrenceEndDate")
+                        }
+                        OutlinedButton(onClick = { showStartTimePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (startTime.isBlank()) "時刻を選択" else "時刻: $startTime")
+                        }
                     }
                 }
             }
@@ -388,7 +428,6 @@ fun AddTaskScreen(
 
             // Photo attachment
             Text("写真メモ", style = MaterialTheme.typography.labelLarge)
-            // Show existing photos (edit mode)
             val allPhotoUris = existingPhotos.map { it.imagePath to true } +
                                pendingPhotoPaths.map { it to false }
             if (allPhotoUris.isNotEmpty()) {
@@ -431,7 +470,6 @@ fun AddTaskScreen(
                     }
                 }
             }
-            // Add photo buttons
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = {
@@ -462,28 +500,30 @@ fun AddTaskScreen(
                 }
             }
 
-            // Notification
-            HorizontalDivider()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("通知", style = MaterialTheme.typography.labelLarge)
-                Switch(checked = notifyEnabled, onCheckedChange = { vm.notifyEnabled.value = it })
-            }
-            if (notifyEnabled) {
-                Box {
-                    OutlinedButton(onClick = { showNotifyMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(when (notifyMinutesBefore) {
-                            0 -> "時刻ちょうど"; 5 -> "5分前"; 10 -> "10分前"
-                            30 -> "30分前"; 60 -> "1時間前"; 1440 -> "1日前"
-                            else -> "${notifyMinutesBefore}分前"
-                        })
-                    }
-                    DropdownMenu(expanded = showNotifyMenu, onDismissRequest = { showNotifyMenu = false }) {
-                        listOf(0 to "時刻ちょうど", 5 to "5分前", 10 to "10分前", 30 to "30分前", 60 to "1時間前", 1440 to "1日前").forEach { (min, label) ->
-                            DropdownMenuItem(text = { Text(label) }, onClick = { vm.notifyMinutesBefore.value = min; showNotifyMenu = false })
+            // Notification（無期限の場合は通知不要のため非表示）
+            if (!isIndefinite) {
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("通知", style = MaterialTheme.typography.labelLarge)
+                    Switch(checked = notifyEnabled, onCheckedChange = { vm.notifyEnabled.value = it })
+                }
+                if (notifyEnabled) {
+                    Box {
+                        OutlinedButton(onClick = { showNotifyMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(when (notifyMinutesBefore) {
+                                0 -> "時刻ちょうど"; 5 -> "5分前"; 10 -> "10分前"
+                                30 -> "30分前"; 60 -> "1時間前"; 1440 -> "1日前"
+                                else -> "${notifyMinutesBefore}分前"
+                            })
+                        }
+                        DropdownMenu(expanded = showNotifyMenu, onDismissRequest = { showNotifyMenu = false }) {
+                            listOf(0 to "時刻ちょうど", 5 to "5分前", 10 to "10分前", 30 to "30分前", 60 to "1時間前", 1440 to "1日前").forEach { (min, label) ->
+                                DropdownMenuItem(text = { Text(label) }, onClick = { vm.notifyMinutesBefore.value = min; showNotifyMenu = false })
+                            }
                         }
                     }
                 }
@@ -493,8 +533,8 @@ fun AddTaskScreen(
             Button(
                 onClick = { vm.save(editTaskId) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = title.isNotBlank() && startDate.isNotBlank() &&
-                    (scheduleType != ScheduleType.RECURRING || recurrencePattern != null)
+                enabled = title.isNotBlank() && (isIndefinite || (startDate.isNotBlank() &&
+                    (scheduleType != ScheduleType.RECURRING || recurrencePattern != null)))
             ) { Text("保存") }
         }
     }
