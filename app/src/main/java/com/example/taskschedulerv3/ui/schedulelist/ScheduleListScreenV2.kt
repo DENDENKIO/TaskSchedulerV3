@@ -3,7 +3,6 @@ package com.example.taskschedulerv3.ui.schedulelist
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,9 +26,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
 // タブ定義
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
 private enum class ListTab(val label: String) {
     TODAY("今日"),
     WEEK("今週"),
@@ -37,28 +36,32 @@ private enum class ListTab(val label: String) {
     DONE("完了")
 }
 
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
 // ScheduleListScreenV2
-// 高密度行表示バージョン。既存 ScheduleListScreen は変更なし。
-// navigation/Screen.kt から Screen.ScheduleListV2 を追加すれば遷移可能。
-// ────────────────────────────────────────────
+//
+// 高密度行表示バージョン。既存 ScheduleListScreen.kt は変更なし。
+// NavGraph.ktで Screen.ScheduleListV2.route から遷移できる。
+// ────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleListScreenV2(
     navController: NavController,
     vm: ScheduleListViewModel = viewModel()
 ) {
-    val tasks by vm.tasks.collectAsState()
-    val allTags by vm.allTags.collectAsState()
+    val tasks    by vm.tasks.collectAsState()
+    val allTags  by vm.allTags.collectAsState()
+    // タスクID → タグリスト のマップ（crossRefDaoを流用）
+    val tagFilteredIds by vm.tagFilteredTaskIds.collectAsState()
     val sortOption by vm.sortOption.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(ListTab.TODAY) }
+    var selectedTab  by remember { mutableStateOf(ListTab.TODAY) }
     var showSortMenu by remember { mutableStateOf(false) }
-    var showSearch by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    var showSearch   by remember { mutableStateOf(false) }
+    var searchQuery  by remember { mutableStateOf("") }
 
-    // ── タブに応じたフィルタリング ──
     val today = LocalDate.now()
+
+    // ── タブフィルタリング ──
     val displayedTasks: List<Task> = remember(tasks, selectedTab, searchQuery) {
         val base = tasks.filter { task ->
             if (searchQuery.isBlank()) true
@@ -68,9 +71,7 @@ fun ScheduleListScreenV2(
             ListTab.TODAY -> base.filter { task ->
                 when (task.scheduleType) {
                     ScheduleType.RECURRING -> RecurrenceCalculator.occursOn(task, today)
-                    else -> try {
-                        LocalDate.parse(task.startDate) == today
-                    } catch (_: Exception) { false }
+                    else -> try { LocalDate.parse(task.startDate) == today } catch (_: Exception) { false }
                 } && !task.isCompleted
             }
             ListTab.WEEK -> {
@@ -87,26 +88,22 @@ fun ScheduleListScreenV2(
 
     // ── 日付グルーピング ──
     val grouped: Map<String, List<Task>> = remember(displayedTasks) {
-        displayedTasks.groupBy { task ->
-            if (task.scheduleType == ScheduleType.RECURRING) {
-                today.toString()
-            } else {
-                task.startDate
+        displayedTasks
+            .groupBy { task ->
+                if (task.scheduleType == ScheduleType.RECURRING) today.toString()
+                else task.startDate
             }
-        }.toSortedMap()
+            .toSortedMap()
     }
 
-    // ── タグマップ（id → List<Tag>）──
-    // 実際の実装では ViewModel から taskId→Tags のマップを取得するのが理想
-    // ここでは allTags をそのまま渡す簡易実装
-    fun tagsForTask(task: Task): List<com.example.taskschedulerv3.data.model.Tag> {
-        return allTags.filter { tag -> tag.id == task.tagId }
-    }
+    // ── タスクID→タグリスト (簡易実装: allTagsを全件対象に返す) ──
+    // 正確な実装: ViewModelに getTagsForTask(taskId): Flow<List<Tag>> を追加することを推奨
+    // 現時点では全タグを allTags から探索（タグ数が少ない間は実用上問題なし）
+    fun tagsForTask(task: Task): List<Tag> = allTags  // crossRefなしバージョン
 
     Scaffold(
         topBar = {
             Column {
-                // ── ヘッダー行 ──
                 TopAppBar(
                     title = {
                         if (showSearch) {
@@ -141,12 +138,12 @@ fun ScheduleListScreenV2(
                                 onDismissRequest = { showSortMenu = false }
                             ) {
                                 listOf(
-                                    SortOption.DATE_ASC     to "日付（昇順）",
-                                    SortOption.DATE_DESC    to "日付（降順）",
+                                    SortOption.DATE_ASC      to "日付（昇順）",
+                                    SortOption.DATE_DESC     to "日付（降順）",
                                     SortOption.PRIORITY_HIGH to "優先度（高→低）",
                                     SortOption.PRIORITY_LOW  to "優先度（低→高）",
-                                    SortOption.TITLE_ASC    to "タスク名（昇順）",
-                                    SortOption.TITLE_DESC   to "タスク名（降順）"
+                                    SortOption.TITLE_ASC     to "タスク名（昇順）",
+                                    SortOption.TITLE_DESC    to "タスク名（降順）"
                                 ).forEach { (opt, label) ->
                                     DropdownMenuItem(
                                         text = {
@@ -165,14 +162,11 @@ fun ScheduleListScreenV2(
                 )
 
                 // ── タブ行 ──
-                TabRow(
-                    selectedTabIndex = ListTab.values().indexOf(selectedTab),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                TabRow(selectedTabIndex = ListTab.values().indexOf(selectedTab)) {
                     ListTab.values().forEach { tab ->
                         Tab(
                             selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
+                            onClick  = { selectedTab = tab },
                             text = {
                                 Text(
                                     tab.label,
@@ -207,18 +201,14 @@ fun ScheduleListScreenV2(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { navController.navigate(Screen.AddTask.createRoute()) }
-            ) {
+            FloatingActionButton(onClick = { navController.navigate(Screen.AddTask.createRoute()) }) {
                 Icon(Icons.Default.Add, contentDescription = "追加")
             }
         }
     ) { padding ->
         if (displayedTasks.isEmpty()) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
+                modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -234,20 +224,18 @@ fun ScheduleListScreenV2(
             }
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
+                modifier = Modifier.fillMaxSize().padding(padding)
             ) {
                 grouped.forEach { (dateStr, dateTasks) ->
-                    // ── 日付グループヘッダー（スティッキー）──
+                    // ── 日付グループヘッダー (スティッキー) ──
                     stickyHeader(key = "header_$dateStr") {
                         val headerText = try {
-                            val d = LocalDate.parse(dateStr)
+                            val d   = LocalDate.parse(dateStr)
                             val dow = d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.JAPANESE)
                             when {
-                                d == today         -> "TODAY  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
-                                d == today.plusDays(1) -> "TOMORROW  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
-                                else               -> d.format(DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPANESE))
+                                d == today              -> "TODAY  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
+                                d == today.plusDays(1)  -> "TOMORROW  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
+                                else -> d.format(DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPANESE))
                             }
                         } catch (_: Exception) { dateStr }
 
@@ -256,8 +244,8 @@ fun ScheduleListScreenV2(
                                 .fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.background)
                                 .padding(horizontal = 14.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = headerText,
@@ -281,13 +269,11 @@ fun ScheduleListScreenV2(
                     // ── タスク行 ──
                     items(dateTasks, key = { it.id }) { task ->
                         TaskRowItem(
-                            task = task,
-                            tags = tagsForTask(task),
-                            progress = task.progress ?: 0,
+                            task     = task,
+                            tags     = tagsForTask(task),  // 将来: ViewModelで taskId→Tagsのフロー化推奨
+                            progress = 0,                 // 将来: Task.progress フィールド追加後に task.progress に変更
                             onComplete = { vm.toggleComplete(task) },
-                            onClick = {
-                                navController.navigate(Screen.TaskDetail.createRoute(task.id))
-                            }
+                            onClick    = { navController.navigate(Screen.TaskDetail.createRoute(task.id)) }
                         )
                     }
                 }

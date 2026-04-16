@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,52 +25,52 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
-// ────────────────────────────────────────────
-// 優先度カラー
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
+// 優先度カラー (priority: 0=高, 1=中, 2=低)
+// ────────────────────────────────────────────────
 private fun priorityLineColor(priority: Int): Color = when (priority) {
-    0 -> Color(0xFFC0392B) // 高 → 赤
-    1 -> Color(0xFFD4891A) // 中 → 橙
-    2 -> Color(0xFF27AE60) // 低 → 緑
+    0 -> Color(0xFFC0392B)
+    1 -> Color(0xFFD4891A)
+    2 -> Color(0xFF27AE60)
     else -> Color(0xFFBDBDBD)
 }
 
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
 // 残日数バッジ
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
 data class DaysBadgeInfo(val label: String, val color: Color, val bgColor: Color)
 
 fun calcDaysBadge(startDate: String, isCompleted: Boolean): DaysBadgeInfo {
-    if (isCompleted) return DaysBadgeInfo(
-        "完了", Color(0xFF9E9E9E), Color(0xFFF0F0F0)
-    )
+    if (isCompleted) return DaysBadgeInfo("完了", Color(0xFF9E9E9E), Color(0xFFF0F0F0))
     val today = LocalDate.now()
     val date = try {
         LocalDate.parse(startDate, DateTimeFormatter.ISO_LOCAL_DATE)
-    } catch (_: Exception) { return DaysBadgeInfo("-", Color(0xFF9E9E9E), Color(0xFFF0F0F0)) }
+    } catch (_: Exception) {
+        return DaysBadgeInfo("-", Color(0xFF9E9E9E), Color(0xFFF0F0F0))
+    }
     val days = ChronoUnit.DAYS.between(today, date)
     return when {
         days < 0   -> DaysBadgeInfo("期限切れ", Color(0xFF9E9E9E), Color(0xFFEEEEEE))
-        days == 0L -> DaysBadgeInfo("今日",   Color(0xFFC0392B), Color(0xFFFDE8E8))
-        days == 1L -> DaysBadgeInfo("明日",   Color(0xFFC0392B), Color(0xFFFDE8E8))
+        days == 0L -> DaysBadgeInfo("今日",      Color(0xFFC0392B), Color(0xFFFDE8E8))
+        days == 1L -> DaysBadgeInfo("明日",      Color(0xFFC0392B), Color(0xFFFDE8E8))
         days <= 3  -> DaysBadgeInfo("残${days}日", Color(0xFFC0392B), Color(0xFFFDE8E8))
         days <= 7  -> DaysBadgeInfo("残${days}日", Color(0xFFB7680E), Color(0xFFFEF3E2))
         else       -> DaysBadgeInfo("残${days}日", Color(0xFF1E7E34), Color(0xFFE4F5E9))
     }
 }
 
-// ────────────────────────────────────────────
-// 進捗バー色
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
+// 進捗バー色 (進捗は0固定・実装時にTaskにフィールド追加可)
+// ────────────────────────────────────────────────
 private fun progressColor(progress: Int, isCompleted: Boolean): Color = when {
     isCompleted || progress >= 100 -> Color(0xFF27AE60)
-    progress < 30 -> Color(0xFFC0392B)
-    else -> Color(0xFF01696F)
+    progress < 30                   -> Color(0xFFC0392B)
+    else                            -> Color(0xFF01696F)
 }
 
-// ────────────────────────────────────────────
-// タグチップ（最大2件 + +n 省略）
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
+// タグチップ行 (最大2件 + +n 省略)
+// ────────────────────────────────────────────────
 @Composable
 fun CompactTagRow(tags: List<Tag>, maxVisible: Int = 2) {
     if (tags.isEmpty()) return
@@ -108,22 +109,13 @@ fun CompactTagRow(tags: List<Tag>, maxVisible: Int = 2) {
     }
 }
 
-// ────────────────────────────────────────────
+// ────────────────────────────────────────────────
 // メインのタスク行アイテム
-// ────────────────────────────────────────────
-/**
- * 高密度行表示のタスクアイテム。
- * 左端：優先度ライン（3dp幅）
- * 中央：件名 → 進捗バー＋% → タグ
- * 右端：残日数バッジ
- *
- * @param task          表示するタスク
- * @param tags          タスクに紐づくタグリスト
- * @param progress      進捗率 0-100（省略時0）
- * @param onComplete    チェックボックスタップ
- * @param onClick       行タップ
- */
-@OptIn(ExperimentalMaterial3Api::class)
+//
+// @param progress  進捗率 0-100。Task entity に progress がない間は
+//                  呼び出し元から常に 0 を渡してOK。
+// @param tags      ViewModelから取得したタグリスト。不明時は emptyList()。
+// ────────────────────────────────────────────────
 @Composable
 fun TaskRowItem(
     task: Task,
@@ -132,14 +124,11 @@ fun TaskRowItem(
     onComplete: () -> Unit,
     onClick: () -> Unit
 ) {
-    val badge = calcDaysBadge(task.startDate, task.isCompleted)
+    val badge    = calcDaysBadge(task.startDate, task.isCompleted)
     val priColor = priorityLineColor(task.priority)
     val progColor = progressColor(progress, task.isCompleted)
 
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(
                 modifier = Modifier
@@ -147,7 +136,7 @@ fun TaskRowItem(
                     .padding(start = 0.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ── 優先度ライン ──
+                // ── 優先度ライン 3dp ──
                 Box(
                     modifier = Modifier
                         .width(3.dp)
@@ -155,10 +144,9 @@ fun TaskRowItem(
                         .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
                         .background(priColor)
                 )
-
                 Spacer(Modifier.width(8.dp))
 
-                // ── チェックボックス（小型）──
+                // ── チェックボックス (18dp) ──
                 val checkBg by animateColorAsState(
                     if (task.isCompleted) Color(0xFF01696F) else Color.Transparent,
                     label = "chk_bg"
@@ -166,27 +154,17 @@ fun TaskRowItem(
                 Box(
                     modifier = Modifier
                         .size(18.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(checkBg)
-                        .then(
-                            if (!task.isCompleted)
-                                Modifier.background(
-                                    Color.Transparent,
-                                    RoundedCornerShape(5.dp)
-                                )
-                            else Modifier
-                        ),
+                        .clip(RoundedCornerShape(5.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    // ボーダー（未完了時）
-                    if (!task.isCompleted) {
-                        Box(
-                            modifier = Modifier
-                                .size(18.dp)
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                if (task.isCompleted) checkBg
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                            )
+                    )
                     if (task.isCompleted) {
                         Icon(
                             Icons.Default.Check,
@@ -195,14 +173,13 @@ fun TaskRowItem(
                             modifier = Modifier.size(11.dp)
                         )
                     }
-                    // タップ領域を広げる
+                    // タップ領域を幅広げる　
                     Surface(
                         onClick = onComplete,
                         color = Color.Transparent,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.matchParentSize()
                     ) {}
                 }
-
                 Spacer(Modifier.width(8.dp))
 
                 // ── メイン情報列 ──
@@ -223,7 +200,6 @@ fun TaskRowItem(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-
                     // 進捗バー + %
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -246,11 +222,9 @@ fun TaskRowItem(
                             fontWeight = FontWeight.Medium
                         )
                     }
-
                     // タグ行
                     CompactTagRow(tags = tags, maxVisible = 2)
                 }
-
                 Spacer(Modifier.width(8.dp))
 
                 // ── 残日数バッジ ──
@@ -265,7 +239,6 @@ fun TaskRowItem(
                         .padding(horizontal = 7.dp, vertical = 2.dp)
                 )
             }
-
             HorizontalDivider(
                 thickness = 0.5.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
