@@ -5,8 +5,6 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.example.taskschedulerv3.ui.home.HomeScreen
-import com.example.taskschedulerv3.ui.schedulelist.ScheduleListScreen
 import com.example.taskschedulerv3.ui.schedulelist.ScheduleListScreenHighDensity
 import com.example.taskschedulerv3.ui.photo.PhotoListScreen
 import com.example.taskschedulerv3.ui.photo.PhotoDetailScreen
@@ -21,11 +19,6 @@ import com.example.taskschedulerv3.ui.TaskFlowUiViewModel
 
 
 sealed class Screen(val route: String) {
-    object Home : Screen("home")
-    object Calendar : Screen("calendar")
-    object ScheduleList : Screen("schedule_list?date={date}") {
-        fun createRoute(date: String = "") = "schedule_list?date=$date"
-    }
     // ★ 追加: 高密度行表示バージョン
     object ScheduleListV2 : Screen("schedule_list_v2")
     object Photo : Screen("photo")

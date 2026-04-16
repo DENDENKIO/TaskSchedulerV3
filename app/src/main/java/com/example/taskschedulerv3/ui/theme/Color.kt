@@ -30,9 +30,7 @@ val WarningOrange = Color(0xFFFFB74D)
 val ErrorRed = Color(0xFFE57373)
 
 // --- 独自・カスタムカラー (TaskFlowカード用 - シック・渋め) ---
-val TaskCardBg = Color(0xFF1B223B) // 深い紺
-val OnTaskCardBg = Color(0xFFE8E8F0) // オフホワイト
-val OnTaskCardBgVariant = Color(0xFF9098B0) // くすんだブルーグレー
+// (Removed TaskCard colors as they are deprecated)
 
 // --- 渋めのバッジ用背景色 (くすみカラー) ---
 val ChicMutedRedBg   = Color(0xFF453030)
