@@ -100,6 +100,13 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             HorizontalDivider()
 
             SettingsItem(
+                title = "無期限予定",
+                subtitle = "日付を決めない予定の一覧・編集・削除",
+                onClick = { navController.navigate(Screen.IndefiniteTask.route) }
+            )
+            HorizontalDivider()
+
+            SettingsItem(
                 title = "繰り返し予定",
                 subtitle = "繰り返し予定の一覧・編集・削除",
                 onClick = { navController.navigate(Screen.Recurring.route) }
@@ -114,7 +121,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             HorizontalDivider()
 
             SettingsItem(
-                title = "ゴミ箱",
+                title = "ゴミ筱",
                 subtitle = "削除したタスクの確認・復元",
                 onClick = { navController.navigate(Screen.Trash.route) }
             )
