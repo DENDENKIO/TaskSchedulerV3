@@ -1,6 +1,8 @@
 package com.example.taskschedulerv3.ui.schedulelist
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,7 +44,8 @@ private enum class ListTab(val label: String) {
 // 高密度行表示バージョン。既存 ScheduleListScreen.kt は変更なし。
 // NavGraph.ktで Screen.ScheduleListV2.route から遷移できる。
 // ────────────────────────────────────────────────
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+
 @Composable
 fun ScheduleListScreenV2(
     navController: NavController,

@@ -18,7 +18,7 @@ import com.example.taskschedulerv3.ui.tag.TagManageScreen
 import com.example.taskschedulerv3.ui.recurring.RecurringScreen
 import com.example.taskschedulerv3.ui.relation.RelatedTasksScreen
 import com.example.taskschedulerv3.ui.indefinite.IndefiniteTaskScreen
-    object IndefiniteTask : Screen("indefinite_task")
+
 
 sealed class Screen(val route: String) {
     object Calendar : Screen("calendar")
@@ -47,9 +47,8 @@ sealed class Screen(val route: String) {
     object RelatedTasks : Screen("related_tasks/{taskId}") {
         fun createRoute(taskId: Int) = "related_tasks/$taskId"
     }
-            composable(Screen.IndefiniteTask.route) {
-            IndefiniteTaskScreen(navController = navController)
-        }
+    object IndefiniteTask : Screen("indefinite_task")
+
 }
 
 @Composable
@@ -100,6 +99,9 @@ fun AppNavGraph(navController: NavHostController, modifier: Modifier = Modifier)
         composable("related_tasks/{taskId}") { backStack ->
             val relTaskId = backStack.arguments?.getString("taskId")?.toIntOrNull() ?: return@composable
             RelatedTasksScreen(navController = navController, taskId = relTaskId)
+        }
+        composable(Screen.IndefiniteTask.route) {
+            IndefiniteTaskScreen(navController = navController)
         }
     }
 }
