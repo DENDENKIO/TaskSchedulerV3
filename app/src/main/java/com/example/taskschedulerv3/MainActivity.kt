@@ -5,7 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,10 +28,13 @@ import java.time.LocalDate
 import com.example.taskschedulerv3.ui.addtask.AddTaskBottomSheet
 import com.example.taskschedulerv3.ui.TaskFlowUiViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.CameraAlt
+import com.example.taskschedulerv3.ui.quickdraft.QuickDraftCaptureSheet
+import com.example.taskschedulerv3.ui.quickdraft.QuickDraftViewModel
+import com.example.taskschedulerv3.ui.schedulelist.ScheduleListViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -116,12 +120,26 @@ fun TaskSchedulerApp() {
         floatingActionButton = {
             val showFab = currentRoute?.startsWith("schedule_list") == true
             if (showFab) {
-                FloatingActionButton(
-                    onClick = { uiVm.openAddTask() },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                Column(
+                    horizontalAlignment = androidx.compose.ui.Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.Add, "タスク追加")
+                    // 仮登録FAB（小さめ）
+                    SmallFloatingActionButton(
+                        onClick = { uiVm.openQuickDraftSheet() },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ) {
+                        Icon(Icons.Default.CameraAlt, "仮登録")
+                    }
+                    // 通常タスク追加FAB
+                    FloatingActionButton(
+                        onClick = { uiVm.openAddTask() },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Icon(Icons.Default.Add, "タスク追加")
+                    }
                 }
             }
         }
@@ -136,6 +154,20 @@ fun TaskSchedulerApp() {
             AddTaskBottomSheet(
                 taskId = uiVm.editingTaskId,
                 onDismiss = { uiVm.closeAddTaskSheet() }
+            )
+        }
+
+        // 仮登録シート
+        if (uiVm.showQuickDraftSheet) {
+            val listVm: ScheduleListViewModel = viewModel()
+            val draftVm: QuickDraftViewModel = viewModel()
+            val allTags by listVm.allTags.collectAsState()
+            QuickDraftCaptureSheet(
+                allTags = allTags,
+                onSave = { photoPath, tagIds ->
+                    draftVm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
+                },
+                onDismiss = { uiVm.closeQuickDraftSheet() }
             )
         }
     }

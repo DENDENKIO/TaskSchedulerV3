@@ -128,7 +128,10 @@ private fun RecurringTaskItem(
         RecurrencePattern.MONTHLY_DATE -> "毎月（日付）"
         RecurrencePattern.MONTHLY_WEEK -> "毎月（曜日）"
         RecurrencePattern.YEARLY       -> "毎年"
-        null                           -> "パターン未設定"
+        RecurrencePattern.EVERY_N_DAYS -> "${task.recurrenceDays}日ごと"
+        RecurrencePattern.WEEKLY_MULTI -> "曜日指定 (${task.recurrenceDays})"
+        RecurrencePattern.MONTHLY_DATES -> "毎月日付指定 (${task.recurrenceDays})"
+        RecurrencePattern.NONE, null   -> "パターン未設定"
     }
 
     ListItem(

@@ -15,6 +15,8 @@ import com.example.taskschedulerv3.ui.tag.TagManageScreen
 import com.example.taskschedulerv3.ui.recurring.RecurringScreen
 import com.example.taskschedulerv3.ui.relation.RelatedTasksScreen
 import com.example.taskschedulerv3.ui.indefinite.IndefiniteTaskScreen
+import com.example.taskschedulerv3.ui.quickdraft.QuickDraftListScreen
+import com.example.taskschedulerv3.ui.quickdraft.QuickDraftEditScreen
 import com.example.taskschedulerv3.ui.TaskFlowUiViewModel
 
 
@@ -36,6 +38,10 @@ sealed class Screen(val route: String) {
         fun createRoute(taskId: Int) = "related_tasks/$taskId"
     }
     object IndefiniteTask : Screen("indefinite_task")
+    object QuickDraftList : Screen("quick_draft_list")
+    object QuickDraftEdit : Screen("quick_draft_edit/{draftId}") {
+        fun createRoute(draftId: Int) = "quick_draft_edit/$draftId"
+    }
 
 }
 
@@ -93,6 +99,13 @@ fun AppNavGraph(
                 navController = navController,
                 onEditRequest = { taskId -> uiVm.openEditTask(taskId) }
             )
+        }
+        composable(Screen.QuickDraftList.route) {
+            QuickDraftListScreen(navController = navController)
+        }
+        composable("quick_draft_edit/{draftId}") { backStack ->
+            val draftId = backStack.arguments?.getString("draftId")?.toIntOrNull() ?: return@composable
+            QuickDraftEditScreen(navController = navController, draftId = draftId)
         }
     }
 }

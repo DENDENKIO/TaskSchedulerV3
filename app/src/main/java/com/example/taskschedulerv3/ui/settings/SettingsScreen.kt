@@ -114,6 +114,13 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             HorizontalDivider()
 
             SettingsItem(
+                title = "仮登録管理",
+                subtitle = "写真から仮登録したタスクの管理",
+                onClick = { navController.navigate(Screen.QuickDraftList.route) }
+            )
+            HorizontalDivider()
+
+            SettingsItem(
                 title = "タグ管理",
                 subtitle = "3階層タグの作成・編集・削除",
                 onClick = { navController.navigate(Screen.TagManage.route) }
@@ -121,7 +128,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             HorizontalDivider()
 
             SettingsItem(
-                title = "ゴミ筱",
+                title = "ゴミ箱",
                 subtitle = "削除したタスクの確認・復元",
                 onClick = { navController.navigate(Screen.Trash.route) }
             )

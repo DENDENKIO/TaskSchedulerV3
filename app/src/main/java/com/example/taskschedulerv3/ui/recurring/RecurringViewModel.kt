@@ -34,4 +34,48 @@ class RecurringViewModel(app: Application) : AndroidViewModel(app) {
     fun delete(task: Task) = viewModelScope.launch {
         repo.softDelete(task.id)
     }
+
+    /**
+     * 繰り返し予定を保存する（新規 or 上書き）
+     * @param editTask null なら新規作成、non-null なら既存タスクを更新
+     */
+    fun saveRecurring(
+        editTask: Task?,
+        title: String,
+        startDate: String,
+        pattern: String,  // EVERY_N_DAYS / WEEKLY_MULTI / MONTHLY_DATES
+        days: String      // CSV
+    ) = viewModelScope.launch {
+        val now = System.currentTimeMillis()
+        val recurrence = when (pattern) {
+            "EVERY_N_DAYS" -> com.example.taskschedulerv3.data.model.RecurrencePattern.EVERY_N_DAYS
+            "WEEKLY_MULTI" -> com.example.taskschedulerv3.data.model.RecurrencePattern.WEEKLY_MULTI
+            "MONTHLY_DATES" -> com.example.taskschedulerv3.data.model.RecurrencePattern.MONTHLY_DATES
+            else -> com.example.taskschedulerv3.data.model.RecurrencePattern.EVERY_N_DAYS
+        }
+        if (editTask == null) {
+            repo.insert(
+                Task(
+                    title = title,
+                    startDate = startDate,
+                    scheduleType = ScheduleType.RECURRING,
+                    recurrencePattern = recurrence,
+                    recurrenceDays = days,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+        } else {
+            repo.update(
+                editTask.copy(
+                    title = title,
+                    startDate = startDate,
+                    scheduleType = ScheduleType.RECURRING,
+                    recurrencePattern = recurrence,
+                    recurrenceDays = days,
+                    updatedAt = now
+                )
+            )
+        }
+    }
 }

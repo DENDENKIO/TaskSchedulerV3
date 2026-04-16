@@ -6,8 +6,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -106,6 +109,37 @@ fun AddTaskBottomSheet(
         dragHandle = { BottomSheetDefaults.DragHandle() },
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
+        // ─── 右上保存ボタン ───
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "閉じる")
+            }
+            Text(
+                if (taskId == null) "新規タスク" else "タスクを編集",
+                style = MaterialTheme.typography.titleMedium
+            )
+            FilledTonalButton(
+                onClick = {
+                    if (!isIndefinite && vm.startDate.value.isEmpty()) {
+                        vm.startDate.value = LocalDate.now().toString()
+                    }
+                    vm.save(taskId)
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Icon(Icons.Default.Done, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (taskId == null) "保存" else "更新")
+            }
+        }
+        HorizontalDivider()
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -114,10 +148,6 @@ fun AddTaskBottomSheet(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Text(
-                if (taskId == null) "新規タスク" else "タスクを編集",
-                style = MaterialTheme.typography.headlineSmall
-            )
 
             OutlinedTextField(
                 value = title,
@@ -206,18 +236,7 @@ fun AddTaskBottomSheet(
                 onOcrRequested = { uri -> photoVm.processImageForOcr(uri) }
             )
 
-            Button(
-                onClick = { 
-                    if (!isIndefinite && vm.startDate.value.isEmpty()) {
-                        vm.startDate.value = LocalDate.now().toString()
-                    }
-                    vm.save(taskId) 
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = title.isNotBlank()
-            ) {
-                Text(if (taskId == null) "タスクを保存" else "変更を保存")
-            }
-        }
-    }
+            Spacer(Modifier.height(8.dp))
+        } // Column
+    } // ModalBottomSheet
 }

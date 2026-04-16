@@ -26,4 +26,8 @@ interface TagDao {
 
     @Query("SELECT * FROM tags WHERE id = :id")
     suspend fun getById(id: Int): Tag?
+
+    // フィルタ用 ソート済み全件
+    @Query("SELECT * FROM tags ORDER BY sortOrder ASC, name ASC")
+    fun getAllForFilter(): Flow<List<Tag>>
 }

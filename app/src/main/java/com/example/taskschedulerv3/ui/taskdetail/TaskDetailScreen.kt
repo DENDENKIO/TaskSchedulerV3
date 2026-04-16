@@ -103,6 +103,10 @@ fun TaskDetailScreen(
                             com.example.taskschedulerv3.data.model.RecurrencePattern.MONTHLY_DATE -> "毎月（日付）"
                             com.example.taskschedulerv3.data.model.RecurrencePattern.MONTHLY_WEEK -> "毎月（曜日）"
                             com.example.taskschedulerv3.data.model.RecurrencePattern.YEARLY -> "毎年"
+                            com.example.taskschedulerv3.data.model.RecurrencePattern.EVERY_N_DAYS -> "${t.recurrenceDays}日ごと"
+                            com.example.taskschedulerv3.data.model.RecurrencePattern.WEEKLY_MULTI -> "曜日指定 (${t.recurrenceDays})"
+                            com.example.taskschedulerv3.data.model.RecurrencePattern.MONTHLY_DATES -> "毎月日付指定 (${t.recurrenceDays})"
+                            com.example.taskschedulerv3.data.model.RecurrencePattern.NONE, null -> "パターン未設定"
                         }
                         InfoRow(label = "繰り返し", value = patternStr + (t.recurrenceEndDate?.let { " (〜$it)" } ?: ""))
                     }

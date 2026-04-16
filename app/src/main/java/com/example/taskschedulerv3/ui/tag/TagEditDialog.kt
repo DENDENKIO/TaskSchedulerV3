@@ -1,45 +1,23 @@
 package com.example.taskschedulerv3.ui.tag
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-val TAG_PRESET_COLORS = listOf(
-    "#E53935", // Red
-    "#FB8C00", // Orange
-    "#FDD835", // Yellow
-    "#43A047", // Green
-    "#00ACC1", // Cyan
-    "#1E88E5", // Blue
-    "#8E24AA", // Purple
-    "#F06292", // Pink
-    "#6D4C41", // Brown
-    "#546E7A", // Blue-grey
-    "#78909C", // Grey
-    "#212121"  // Dark
-)
+// 固定色（UIでの色入力を廃止し、保存時にこの値を使用）
+const val TAG_FIXED_COLOR = "#7A7A8C"
 
 @Composable
 fun TagEditDialog(
     title: String,
     initialName: String = "",
-    initialColor: String = TAG_PRESET_COLORS.first(),
+    initialColor: String = TAG_FIXED_COLOR,  // 後方互換のため引数は残す
     onConfirm: (name: String, color: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
-    var selectedColor by remember { mutableStateOf(initialColor) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -53,34 +31,13 @@ fun TagEditDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Text("カラー", style = MaterialTheme.typography.labelMedium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(TAG_PRESET_COLORS) { colorHex ->
-                        val color = parseColor(colorHex)
-                        val isSelected = colorHex == selectedColor
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .then(
-                                    if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                    else Modifier
-                                )
-                                .clickable { selectedColor = colorHex }
-                        )
-                    }
-                }
-                // Preview
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(modifier = Modifier.size(16.dp).clip(CircleShape).background(parseColor(selectedColor)))
-                    Text(name.ifBlank { "プレビュー" }, style = MaterialTheme.typography.bodyMedium)
-                }
+                // 色入力欄・カラープレビューは廃止 (DBのcolorカラムは維持)
+                // 保存時は TAG_FIXED_COLOR を使用する
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { if (name.isNotBlank()) onConfirm(name.trim(), selectedColor) },
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim(), TAG_FIXED_COLOR) },
                 enabled = name.isNotBlank()
             ) { Text("保存") }
         },
@@ -90,10 +47,11 @@ fun TagEditDialog(
     )
 }
 
-fun parseColor(hex: String): Color {
+/** @deprecated Use TAG_FIXED_COLOR instead. Kept for compilation compatibility. */
+fun parseColor(hex: String): androidx.compose.ui.graphics.Color {
     return try {
-        Color(android.graphics.Color.parseColor(hex))
+        androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex))
     } catch (e: Exception) {
-        Color.Gray
+        androidx.compose.ui.graphics.Color.Gray
     }
 }

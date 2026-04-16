@@ -28,7 +28,6 @@ object RecurrenceCalculator {
                 val days = task.recurrenceDays?.split(",")?.map { it.trim().toInt() }
                     ?: listOf(start.dayOfWeek.value)
                 if (!days.contains(date.dayOfWeek.value)) return false
-                // Same day-of-week as start: check if it's an even number of weeks away
                 val startWeekMonday = start.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
                 val dateWeekMonday = date.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
                 ChronoUnit.WEEKS.between(startWeekMonday, dateWeekMonday) % 2 == 0L
@@ -40,7 +39,19 @@ object RecurrenceCalculator {
                 weekOfMonth == startWeek && date.dayOfWeek == start.dayOfWeek
             }
             RecurrencePattern.YEARLY -> date.monthValue == start.monthValue && date.dayOfMonth == start.dayOfMonth
-            null -> false
+            RecurrencePattern.EVERY_N_DAYS -> {
+                val n = task.recurrenceDays?.trim()?.toLongOrNull() ?: 1L
+                ChronoUnit.DAYS.between(start, date) % n == 0L
+            }
+            RecurrencePattern.WEEKLY_MULTI -> {
+                val days = task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() } ?: emptyList()
+                date.dayOfWeek.value in days
+            }
+            RecurrencePattern.MONTHLY_DATES -> {
+                val days = task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() } ?: emptyList()
+                date.dayOfMonth in days
+            }
+            RecurrencePattern.NONE, null -> false
         }
     }
 

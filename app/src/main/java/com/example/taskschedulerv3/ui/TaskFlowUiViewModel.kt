@@ -12,6 +12,9 @@ class TaskFlowUiViewModel : ViewModel() {
     var editingTaskId by mutableStateOf<Int?>(null)
         private set
 
+    var showQuickDraftSheet by mutableStateOf(false)
+        private set
+
     fun openAddTask() {
         editingTaskId = null
         showAddTaskSheet = true
@@ -26,4 +29,7 @@ class TaskFlowUiViewModel : ViewModel() {
         showAddTaskSheet = false
         editingTaskId = null
     }
+
+    fun openQuickDraftSheet() { showQuickDraftSheet = true }
+    fun closeQuickDraftSheet() { showQuickDraftSheet = false }
 }
