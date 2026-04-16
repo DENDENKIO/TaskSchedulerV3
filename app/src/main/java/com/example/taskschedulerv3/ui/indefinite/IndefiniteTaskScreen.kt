@@ -21,6 +21,7 @@ import java.time.LocalDate
 @Composable
 fun IndefiniteTaskScreen(
     navController: NavController,
+    onEditRequest: (Int) -> Unit,
     viewModel: IndefiniteTaskViewModel = viewModel()
 ) {
     val tasks by viewModel.indefiniteTasks.collectAsState()
@@ -66,7 +67,7 @@ fun IndefiniteTaskScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 TextButton(onClick = {
-                                    navController.navigate(Screen.EditTask.createRoute(task.id))
+                                    onEditRequest(task.id)
                                 }) { Text("編集") }
                                 IconButton(onClick = {
                                     convertTarget = task.id

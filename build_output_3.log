@@ -1,0 +1,92 @@
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeDebugNativeLibs UP-TO-DATE
+> Task :app:stripDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:kspDebugKotlin
+> Task :app:compileDebugKotlin
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/MainActivity.kt:80:43 'val Icons.Filled.List: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.List.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/addtask/AddTaskScreen.kt:184:97 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/addtask/AddTaskScreen.kt:302:53 'fun Modifier.menuAnchor(): Modifier' is deprecated. Use overload that takes MenuAnchorType and enabled parameters.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/CalendarViewModel.kt:72:18 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/DayView.kt:54:70 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/DayView.kt:65:66 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/MonthView.kt:55:36 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/MonthView.kt:63:36 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/WeekView.kt:59:71 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/WeekView.kt:64:67 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/YearView.kt:52:71 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/calendar/YearView.kt:54:67 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/indefinite/IndefiniteTaskScreen.kt:36:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/photo/PhotoDetailScreen.kt:122:40 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/photo/PhotoDetailScreen.kt:126:44 'val Icons.Filled.Label: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Label.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/photo/PhotoListScreen.kt:115:48 'val Icons.Filled.Label: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Label.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/photo/PhotoListScreen.kt:179:60 'val Icons.Filled.Label: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Label.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/photo/PhotoListViewModel.kt:73:21 This declaration is in a preview state and can be changed in a backwards-incompatible manner with a best-effort migration. Its usage should be marked with '@kotlinx.coroutines.FlowPreview' or '@OptIn(kotlinx.coroutines.FlowPreview::class)' if you accept the drawback of relying on preview API
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/recurring/RecurringScreen.kt:60:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/relation/RelatedTasksScreen.kt:39:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/relation/RelatedTasksViewModel.kt:22:10 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/relation/RelatedTasksViewModel.kt:27:10 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListScreen.kt:218:60 'val Icons.Filled.Label: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Label.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListScreen.kt:257:44 'val Icons.Filled.Sort: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Sort.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListScreenV2.kt:137:52 'val Icons.Filled.Sort: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Sort.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListViewModel.kt:38:21 This declaration is in a preview state and can be changed in a backwards-incompatible manner with a best-effort migration. Its usage should be marked with '@kotlinx.coroutines.FlowPreview' or '@OptIn(kotlinx.coroutines.FlowPreview::class)' if you accept the drawback of relying on preview API
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListViewModel.kt:38:35 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListViewModel.kt:88:10 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/tag/TagManageScreen.kt:88:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/taskdetail/TaskDetailScreen.kt:49:97 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/taskdetail/TaskDetailScreen.kt:190:52 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/taskdetail/TaskDetailScreen.kt:249:28 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/taskdetail/TaskDetailViewModel.kt:23:10 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/taskdetail/TaskDetailViewModel.kt:31:10 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/taskdetail/TaskDetailViewModel.kt:45:10 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/trash/TrashScreen.kt:46:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+
+> Task :app:compileDebugJavaWithJavac
+> Task :app:processDebugJavaRes
+> Task :app:mergeDebugJavaResource
+> Task :app:dexBuilderDebug
+> Task :app:mergeProjectDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+[Incubating] Problems report is available at: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 2m 9s
+36 actionable tasks: 9 executed, 27 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

@@ -11,7 +11,8 @@ object RecurrenceCalculator {
      * Returns true if the recurring task should occur on the given date.
      */
     fun occursOn(task: Task, date: LocalDate): Boolean {
-        val start = LocalDate.parse(task.startDate, DateUtils.formatter)
+        if (task.startDate.isEmpty()) return false
+        val start = try { LocalDate.parse(task.startDate, DateUtils.formatter) } catch (_: Exception) { return false }
         if (date.isBefore(start)) return false
         task.recurrenceEndDate?.let {
             if (date.isAfter(LocalDate.parse(it, DateUtils.formatter))) return false

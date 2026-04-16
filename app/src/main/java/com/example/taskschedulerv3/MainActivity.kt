@@ -7,10 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Photo
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -23,36 +19,36 @@ import com.example.taskschedulerv3.data.repository.TaskRepository
 import com.example.taskschedulerv3.navigation.AppNavGraph
 import com.example.taskschedulerv3.navigation.Screen
 import com.example.taskschedulerv3.notification.NotificationHelper
-import com.example.taskschedulerv3.ui.theme.TaskSchedulerV3Theme
+import com.example.taskschedulerv3.ui.theme.AppTheme
 import com.example.taskschedulerv3.util.ThemeMode
 import com.example.taskschedulerv3.util.ThemePreferences
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import com.example.taskschedulerv3.ui.addtask.AddTaskBottomSheet
+import com.example.taskschedulerv3.ui.TaskFlowUiViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         NotificationHelper.createChannel(this)
 
-        // Auto-purge tasks deleted more than 30 days ago
         lifecycleScope.launch {
             try {
                 val db = AppDatabase.getInstance(this@MainActivity)
                 val repo = TaskRepository(db.taskDao())
                 repo.purgeOldDeleted()
-
-                // Auto-purge completed recurring task records from yesterday and earlier
-                // (keep only today's completion records so recurring tasks reset each day)
-                val today = LocalDate.now().toString()  // yyyy-MM-dd format
+                val today = LocalDate.now().toString()
                 db.taskCompletionDao().deleteOlderThan(today)
-            } catch (e: Exception) {
-                // Ignore purge errors on startup
-            }
+            } catch (_: Exception) {}
         }
 
         enableEdgeToEdge()
         setContent {
-            // Use applicationContext to match SettingsViewModel's DataStore instance
             val themeMode by ThemePreferences.getThemeMode(applicationContext)
                 .collectAsState(initial = ThemeMode.SYSTEM)
 
@@ -62,7 +58,7 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
 
-            TaskSchedulerV3Theme(darkTheme = isDark) {
+            AppTheme(darkTheme = isDark) {
                 TaskSchedulerApp()
             }
         }
@@ -75,57 +71,72 @@ data class BottomNavItem(val label: String, val icon: ImageVector, val route: St
 @Composable
 fun TaskSchedulerApp() {
     val navController = rememberNavController()
+    val uiVm: TaskFlowUiViewModel = viewModel()
+
     val bottomItems = listOf(
-        BottomNavItem("カレンダー", Icons.Default.CalendarMonth, Screen.Calendar.route),
-        BottomNavItem("一覧", Icons.Default.List, Screen.ScheduleList.createRoute()),
-        BottomNavItem("写真", Icons.Default.Photo, Screen.Photo.route),
+        BottomNavItem("一覧", Icons.Default.FormatListBulleted, Screen.ScheduleListV2.route),
         BottomNavItem("設定", Icons.Default.Settings, Screen.Settings.route),
     )
+    
     val currentBackStack by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStack?.destination?.route
 
-    // ScheduleList route pattern contains query params — match by prefix
     fun routeMatches(current: String?, item: String): Boolean {
         if (current == null) return false
-        return current == item || current.startsWith("schedule_list")
-            && item.startsWith("schedule_list")
+        if (item == Screen.ScheduleListV2.route && current.startsWith("schedule_list")) return true
+        return current == item
     }
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                bottomItems.forEach { item ->
-                    NavigationBarItem(
-                        selected = routeMatches(currentRoute, item.route),
-                        onClick = {
-                            val isCalendar = item.route == Screen.Calendar.route
-                            if (isCalendar) {
-                                // Always pop everything and go back to Calendar
-                                navController.navigate(Screen.Calendar.route) {
-                                    popUpTo(0) { inclusive = true }
-                                    launchSingleTop = true
-                                }
-                            } else if (!routeMatches(currentRoute, item.route)) {
-                                navController.navigate(item.route) {
-                                    popUpTo(Screen.Calendar.route) {
-                                        saveState = true
-                                        inclusive = false
+            val showBottomBar = bottomItems.any { routeMatches(currentRoute, it.route) }
+            if (showBottomBar) {
+                NavigationBar {
+                    bottomItems.forEach { item ->
+                        NavigationBarItem(
+                            selected = routeMatches(currentRoute, item.route),
+                            onClick = {
+                                if (!routeMatches(currentRoute, item.route)) {
+                                    navController.navigate(item.route) {
+                                        popUpTo(Screen.ScheduleListV2.route) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
-                            }
-                        },
-                        icon = { Icon(item.icon, contentDescription = item.label) },
-                        label = { Text(item.label) }
-                    )
+                            },
+                            icon = { Icon(item.icon, contentDescription = item.label) },
+                            label = { Text(item.label) }
+                        )
+                    }
+                }
+            }
+        },
+        floatingActionButton = {
+            val showFab = currentRoute?.startsWith("schedule_list") == true
+            if (showFab) {
+                FloatingActionButton(
+                    onClick = { uiVm.openAddTask() },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Default.Add, "タスク追加")
                 }
             }
         }
     ) { padding ->
         AppNavGraph(
             navController = navController,
+            uiVm = uiVm,
             modifier = Modifier.padding(padding)
         )
+
+        if (uiVm.showAddTaskSheet) {
+            AddTaskBottomSheet(
+                taskId = uiVm.editingTaskId,
+                onDismiss = { uiVm.closeAddTaskSheet() }
+            )
+        }
     }
 }

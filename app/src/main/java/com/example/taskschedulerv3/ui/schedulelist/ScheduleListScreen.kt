@@ -29,7 +29,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.taskschedulerv3.data.model.*
 import com.example.taskschedulerv3.navigation.Screen
-import com.example.taskschedulerv3.ui.calendar.PriorityBadge
+import com.example.taskschedulerv3.ui.components.PriorityBadge
 import com.example.taskschedulerv3.ui.components.buildPath
 import com.example.taskschedulerv3.ui.tag.parseColor
 import com.example.taskschedulerv3.util.RecurrenceCalculator
@@ -127,15 +127,8 @@ fun ScheduleListScreen(
         )
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("スケジュール一覧") }) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { navController.navigate(Screen.AddTask.createRoute()) }) {
-                Icon(Icons.Default.Add, contentDescription = "追加")
-            }
-        }
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(title = { Text("スケジュール一覧") })
             // Date filter banner
             if (filterDate.isNotEmpty()) {
                 Row(
@@ -324,7 +317,6 @@ fun ScheduleListScreen(
                                 onComplete = { vm.toggleComplete(task) },
                                 onClick = { navController.navigate(Screen.TaskDetail.createRoute(task.id)) }
                             )
-                        }
                     }
                 }
             }

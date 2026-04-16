@@ -23,6 +23,7 @@ data class Task(
     val isDeleted: Boolean = false,
     val deletedAt: Long? = null,
     val isIndefinite: Boolean = false,     // 無期限登録フラグ
+    val progress: Int = 0,                 // 進捗率 (0-100)
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

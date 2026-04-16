@@ -20,7 +20,7 @@ import com.example.taskschedulerv3.data.model.*
         TaskCompletion::class,
         PhotoTagCrossRef::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -62,6 +62,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration: v3 -> v4: add ocrText and sourceType to photo_memos
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE photo_memos ADD COLUMN ocrText TEXT")
+                database.execSQL("ALTER TABLE photo_memos ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'CAMERA'")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE tasks ADD COLUMN progress INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -69,7 +83,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "task_scheduler.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build().also { INSTANCE = it }
             }
     }

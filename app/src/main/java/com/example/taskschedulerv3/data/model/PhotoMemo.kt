@@ -19,5 +19,7 @@ data class PhotoMemo(
     val title: String? = null,
     val memo: String? = null,
     val imagePath: String,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val ocrText: String? = null,
+    val sourceType: String = "CAMERA"
 )

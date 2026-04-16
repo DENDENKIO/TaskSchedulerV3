@@ -33,6 +33,7 @@ import com.example.taskschedulerv3.util.PhotoFileManager
 fun TaskDetailScreen(
     navController: NavController,
     taskId: Int,
+    onEditRequest: () -> Unit,
     vm: TaskDetailViewModel = viewModel()
 ) {
     val task by vm.task.collectAsState()
@@ -49,7 +50,7 @@ fun TaskDetailScreen(
                     IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) }
                 },
                 actions = {
-                    IconButton(onClick = { navController.navigate(Screen.EditTask.createRoute(taskId)) }) {
+                    IconButton(onClick = onEditRequest) {
                         Icon(Icons.Default.Edit, null)
                     }
                 }
@@ -83,7 +84,8 @@ fun TaskDetailScreen(
 
                 // Date/time info
                 item {
-                    InfoRow(label = "日付", value = "${t.startDate}${t.endDate?.let { " 〜 $it" } ?: ""}")
+                    val dateStr = if (t.isIndefinite) "無期限" else "${t.startDate}${t.endDate?.let { " 〜 $it" } ?: ""}"
+                    InfoRow(label = "日付", value = dateStr)
                 }
                 if (t.startTime != null) {
                     item {

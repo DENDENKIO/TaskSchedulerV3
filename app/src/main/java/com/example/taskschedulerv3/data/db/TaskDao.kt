@@ -15,10 +15,10 @@ interface TaskDao {
     @Delete
     suspend fun delete(task: Task)
 
-    @Query("SELECT * FROM tasks WHERE isDeleted = 0 AND isIndefinite = 0 ORDER BY startDate ASC")
+    @Query("SELECT * FROM tasks WHERE isDeleted = 0 ORDER BY startDate ASC")
     fun getAll(): Flow<List<Task>>
 
-    @Query("SELECT * FROM tasks WHERE startDate = :date AND isDeleted = 0 AND isIndefinite = 0")
+    @Query("SELECT * FROM tasks WHERE startDate = :date AND isDeleted = 0")
     fun getByDate(date: String): Flow<List<Task>>
 
     @Query("SELECT * FROM tasks WHERE id = :id")

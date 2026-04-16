@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 class PhotoDetailViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
     private val repo = PhotoMemoRepository(db.photoMemoDao())
+    private val taskRepo = com.example.taskschedulerv3.data.repository.TaskRepository(db.taskDao())
     private val photoTagDao = db.photoTagCrossRefDao()
 
     private val _photoId = MutableStateFlow<Int?>(null)
@@ -44,6 +45,13 @@ class PhotoDetailViewModel(app: Application) : AndroidViewModel(app) {
         ))
         // Reload
         _photoId.value = p.id
+    }
+
+    fun updateParentTaskTitle(newTitle: String) = viewModelScope.launch {
+        val p = photo.value ?: return@launch
+        val tId = p.taskId ?: return@launch
+        val t = taskRepo.getById(tId) ?: return@launch
+        taskRepo.update(t.copy(title = newTitle))
     }
 
     fun setTags(tagIds: List<Int>) = viewModelScope.launch {

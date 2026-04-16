@@ -27,6 +27,8 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun RecurringScreen(
     navController: NavController,
+    onAddTask: () -> Unit,
+    onEditRequest: (Int) -> Unit,
     vm: RecurringViewModel = viewModel()
 ) {
     val allTasks by vm.recurringTasks.collectAsState()
@@ -63,9 +65,7 @@ fun RecurringScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                navController.navigate(Screen.AddTask.createRoute())
-            }) {
+            FloatingActionButton(onClick = onAddTask) {
                 Icon(Icons.Default.Add, contentDescription = "追加")
             }
         }
@@ -104,7 +104,7 @@ fun RecurringScreen(
                     items(tasks, key = { it.id }) { task ->
                         RecurringTaskItem(
                             task = task,
-                            onEdit = { navController.navigate(Screen.EditTask.createRoute(task.id)) },
+                            onEdit = { onEditRequest(task.id) },
                             onDelete = { deleteTarget = task }
                         )
                         HorizontalDivider()

@@ -41,6 +41,12 @@ fun PhotoDetailScreen(
     val photo by vm.photo.collectAsState()
     val photoTags by vm.photoTags.collectAsState()
     val allTags by vm.allTags.collectAsState()
+    
+    // OCR ViewModel
+    val photoVm: TaskPhotoViewModel = viewModel()
+    val ocrResult by photoVm.ocrResult.collectAsState()
+    val isOcrProcessing by photoVm.isProcessing.collectAsState()
+
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var showTagDialog by remember { mutableStateOf(false) }
@@ -91,6 +97,23 @@ fun PhotoDetailScreen(
         )
     }
 
+    // OCR Result Dialog
+    ocrResult?.let { text ->
+        OcrResultDialog(
+            text = text,
+            onApplyToTitle = { title -> 
+                // タスク名に適用時は、親タスクのタイトルを置き換える
+                vm.updateParentTaskTitle(title)
+            },
+            onApplyToDescription = { memoText, isAppend -> 
+                val currentMemo = photo?.memo ?: ""
+                val newMemo = if (isAppend && currentMemo.isNotEmpty()) "$currentMemo\n$memoText" else memoText
+                vm.updateMemo(title = photo?.title, memo = newMemo)
+            },
+            onDismiss = { photoVm.clearOcrResult() }
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (photo != null) {
             AsyncImage(
@@ -108,7 +131,7 @@ fun PhotoDetailScreen(
                     }
             )
 
-            // Top: back / edit / tag / delete
+            // Top: back / edit / tag / delete / OCR
             Row(
                 modifier = Modifier.fillMaxWidth()
                     .background(Color.Black.copy(alpha = 0.45f))
@@ -122,6 +145,13 @@ fun PhotoDetailScreen(
                     Icon(Icons.Default.ArrowBack, null, tint = Color.White)
                 }
                 Row {
+                    IconButton(onClick = {
+                        photo?.imagePath?.let {
+                            photoVm.processFileForOcr(java.io.File(it))
+                        }
+                    }) {
+                        Icon(Icons.Default.DocumentScanner, contentDescription = "OCR読み取り", tint = Color.White)
+                    }
                     IconButton(onClick = { showTagDialog = true }) {
                         Icon(Icons.Default.Label, contentDescription = "タグ編集", tint = Color.White)
                     }
@@ -170,6 +200,17 @@ fun PhotoDetailScreen(
                         color = Color.White.copy(alpha = 0.8f),
                         maxLines = 3, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+
+            if (isOcrProcessing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Color.White)
                 }
             }
         } else {

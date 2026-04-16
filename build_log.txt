@@ -14,17 +14,20 @@
 > Task :app:processDebugManifest UP-TO-DATE
 > Task :app:processDebugManifestForPackage UP-TO-DATE
 > Task :app:processDebugResources UP-TO-DATE
-> Task :app:kspDebugKotlin UP-TO-DATE
 
-> Task :app:compileDebugKotlin FAILED
-e: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/components/PhotoThumbnailRow.kt:45:62 Unresolved reference 'clickable'.
+> Task :app:kspDebugKotlin FAILED
+e: [ksp] C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListScreenV2.kt: (118, 12): Function declaration must have a name
+e: Error occurred in KSP, check log for detail
+e: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListScreenV2.kt:118:5 Expecting a top level declaration
+e: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListScreenV2.kt:118:12 Expecting a top level declaration
+e: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/app/src/main/java/com/example/taskschedulerv3/ui/schedulelist/ScheduleListScreenV2.kt:326:1 Expecting a top level declaration
 
 [Incubating] Problems report is available at: file:///C:/Users/MASTER-T/AndroidStudioProjects/TaskSchedulerV3/build/reports/problems/problems-report.html
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileDebugKotlin'.
+Execution failed for task ':app:kspDebugKotlin'.
 > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
    > Compilation error. See log for more details
 
@@ -40,5 +43,5 @@ You can use '--warning-mode all' to show the individual deprecation warnings and
 
 For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 
-BUILD FAILED in 5s
-15 actionable tasks: 1 executed, 14 up-to-date
+BUILD FAILED in 6s
+14 actionable tasks: 1 executed, 13 up-to-date

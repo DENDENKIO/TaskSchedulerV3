@@ -103,6 +103,32 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             if (rel.taskId1 == taskId) rel.taskId2 else rel.taskId1
         }.toSet()
         _existingRelatedIds.value = existingIds
+        _saveSuccess.value = false
+    }
+
+    fun resetState() {
+        title.value = ""
+        description.value = ""
+        startDate.value = ""
+        endDate.value = ""
+        startTime.value = ""
+        endTime.value = ""
+        scheduleType.value = ScheduleType.NORMAL
+        recurrencePattern.value = null
+        recurrenceDays.value = ""
+        recurrenceEndDate.value = ""
+        priority.value = 1
+        notifyEnabled.value = true
+        notifyMinutesBefore.value = 10
+        isIndefinite.value = false
+        selectedTagIds.value = emptySet()
+        _pendingPhotoPaths.value = emptyList()
+        _existingPhotos.value = emptyList()
+        _addedRelatedIds.value = emptySet()
+        _removedRelatedIds.value = emptySet()
+        _existingRelatedIds.value = emptySet()
+        _editId = null
+        _saveSuccess.value = false
     }
 
     fun addRelatedTask(taskId: Int) {
@@ -138,6 +164,15 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         _existingPhotos.value = _existingPhotos.value - photo
     }
 
+    fun applyOcrToTitle(text: String) {
+        title.value = text.trim()
+    }
+
+    fun applyOcrToDescription(text: String, isAppend: Boolean) {
+        val current = description.value
+        description.value = if (isAppend && current.isNotEmpty()) "$current\n${text.trim()}" else text.trim()
+    }
+
     fun save(editId: Int? = null) = viewModelScope.launch {
         val task = Task(
             id = editId ?: 0,
@@ -157,8 +192,12 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             isIndefinite = isIndefinite.value,
             updatedAt = System.currentTimeMillis()
         )
-        val taskId = repo.insert(task).toInt()
-        val finalId = if (editId != null) editId else taskId
+        val finalId = if (editId != null) {
+            repo.update(task)
+            editId
+        } else {
+            repo.insert(task).toInt()
+        }
 
         // Tags
         crossRefDao.deleteByTaskId(finalId)

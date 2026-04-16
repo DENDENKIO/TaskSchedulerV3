@@ -45,4 +45,10 @@ interface PhotoMemoDao {
         ORDER BY photo_memos.createdAt DESC
     """)
     fun getByTagIds(tagIds: List<Int>): Flow<List<PhotoMemo>>
+
+    @Query("SELECT * FROM photo_memos WHERE taskId = :taskId ORDER BY createdAt DESC")
+    fun getPhotosForTask(taskId: Int): Flow<List<PhotoMemo>>
+
+    @Query("UPDATE photo_memos SET ocrText = :ocrText WHERE id = :photoId")
+    suspend fun updateOcrText(photoId: Int, ocrText: String)
 }
