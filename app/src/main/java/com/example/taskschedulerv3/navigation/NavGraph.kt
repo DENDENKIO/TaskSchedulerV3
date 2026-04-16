@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.taskschedulerv3.ui.calendar.CalendarScreen
 import com.example.taskschedulerv3.ui.schedulelist.ScheduleListScreen
+import com.example.taskschedulerv3.ui.schedulelist.ScheduleListScreenV2  // ★ 追加
 import com.example.taskschedulerv3.ui.photo.PhotoListScreen
 import com.example.taskschedulerv3.ui.photo.PhotoDetailScreen
 import com.example.taskschedulerv3.ui.settings.SettingsScreen
@@ -24,6 +25,8 @@ sealed class Screen(val route: String) {
     object ScheduleList : Screen("schedule_list?date={date}") {
         fun createRoute(date: String = "") = "schedule_list?date=$date"
     }
+    // ★ 追加: 高密度行表示バージョン
+    object ScheduleListV2 : Screen("schedule_list_v2")
     object Photo : Screen("photo")
     object Settings : Screen("settings")
     object AddTask : Screen("add_task?date={date}") {
@@ -58,6 +61,10 @@ fun AppNavGraph(navController: NavHostController, modifier: Modifier = Modifier)
         composable("schedule_list?date={date}") { backStack ->
             val date = backStack.arguments?.getString("date") ?: ""
             ScheduleListScreen(navController = navController, initialDate = date)
+        }
+        // ★ 追加: 高密度行表示 V2 ルート
+        composable(Screen.ScheduleListV2.route) {
+            ScheduleListScreenV2(navController = navController)
         }
         composable(Screen.Photo.route) {
             PhotoListScreen(navController = navController)
