@@ -58,6 +58,31 @@
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="ocr" />
 
+        <!-- Quick Photo Widget -->
+        <receiver
+            android:name=".widget.QuickPhotoWidgetProvider"
+            android:exported="true"
+            android:label="仮登録カメラ">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_photo_widget_info" />
+        </receiver>
+
+        <!-- Quick Camera Activity -->
+        <activity
+            android:name=".ui.quickdraft.QuickCameraActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false" />
+
+        <!-- Widget Tag Service -->
+        <service
+            android:name=".widget.WidgetTagService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+
     </application>
 
 </manifest>

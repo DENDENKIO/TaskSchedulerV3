@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
@@ -49,6 +50,7 @@ import java.io.File
 @Composable
 fun QuickDraftCaptureSheet(
     allTags: List<Tag>,
+    autoMode: Boolean = false,
     onSave: (photoPath: String?, tagIds: List<Int>) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -67,9 +69,18 @@ fun QuickDraftCaptureSheet(
         if (success) {
             tempCameraFile?.let { file ->
                 val path = PhotoFileManager.saveResizedPhotoFromFile(context, file)
-                capturedPhotoPath = path
-                capturedPhotoUri = path?.let { PhotoFileManager.pathToUri(it) }
+                if (autoMode) {
+                    onSave(path, emptyList())
+                    onDismiss()
+                } else {
+                    capturedPhotoPath = path
+                    capturedPhotoUri = path?.let { PhotoFileManager.pathToUri(it) }
+                }
                 tempCameraFile = null
+            }
+        } else {
+            if (autoMode) {
+                onDismiss()
             }
         }
     }
@@ -99,6 +110,12 @@ fun QuickDraftCaptureSheet(
             cameraLauncher.launch(uri)
         } else {
             permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    LaunchedEffect(autoMode) {
+        if (autoMode && capturedPhotoUri == null) {
+            launchCamera()
         }
     }
 
@@ -162,6 +179,24 @@ fun QuickDraftCaptureSheet(
                             Icon(Icons.Default.AddAPhoto, null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("撮り直す", fontSize = 11.sp)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        FilledTonalButton(
+                            onClick = {
+                                capturedPhotoPath?.let { path ->
+                                    PhotoFileManager.rotateImage(context, path)?.let { newPath ->
+                                        capturedPhotoPath = newPath
+                                        // Coilのキャッシュを避けるため全く新しいUriをセットする
+                                        capturedPhotoUri = Uri.parse("file://$newPath")
+                                    }
+                                }
+                            },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp)
+                        ) {
+                            Icon(Icons.Default.RotateRight, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("回転", fontSize = 11.sp)
                         }
                         Spacer(Modifier.width(6.dp))
                         FilledTonalButton(

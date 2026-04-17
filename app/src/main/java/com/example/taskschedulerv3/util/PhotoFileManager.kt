@@ -3,6 +3,7 @@ package com.example.taskschedulerv3.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
@@ -82,6 +83,34 @@ object PhotoFileManager {
      */
     fun deletePhoto(imagePath: String) {
         try { File(imagePath).delete() } catch (_: Exception) {}
+    }
+
+    /**
+     * Rotates a photo file by the specified degrees and saves it to a new file,
+     * deleting the old file. Returns the new file path, or null on failure.
+     */
+    fun rotateImage(context: Context, imagePath: String, degrees: Float = 90f): String? {
+        return try {
+            val original = BitmapFactory.decodeFile(imagePath) ?: return null
+            val matrix = Matrix().apply { postRotate(degrees) }
+            val rotated = Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+            
+            val dir = File(context.filesDir, PHOTOS_DIR).apply { mkdirs() }
+            val outFile = File(dir, "photo_${System.currentTimeMillis()}.jpg")
+            FileOutputStream(outFile).use { out ->
+                rotated.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+            }
+            if (rotated !== original) rotated.recycle()
+            original.recycle()
+            
+            // Delete old file
+            File(imagePath).delete()
+            
+            outFile.absolutePath
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     /**

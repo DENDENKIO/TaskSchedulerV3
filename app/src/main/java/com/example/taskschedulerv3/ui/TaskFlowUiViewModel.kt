@@ -15,6 +15,9 @@ class TaskFlowUiViewModel : ViewModel() {
     var showQuickDraftSheet by mutableStateOf(false)
         private set
 
+    var quickDraftAutoMode by mutableStateOf(false)
+        private set
+
     fun openAddTask() {
         editingTaskId = null
         showAddTaskSheet = true
@@ -30,6 +33,12 @@ class TaskFlowUiViewModel : ViewModel() {
         editingTaskId = null
     }
 
-    fun openQuickDraftSheet() { showQuickDraftSheet = true }
-    fun closeQuickDraftSheet() { showQuickDraftSheet = false }
+    fun openQuickDraftSheet(autoMode: Boolean = false) {
+        quickDraftAutoMode = autoMode
+        showQuickDraftSheet = true
+    }
+    fun closeQuickDraftSheet() {
+        showQuickDraftSheet = false
+        quickDraftAutoMode = false
+    }
 }

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg_panel"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <!-- タグ一覧 -->
+    <GridView
+        android:id="@+id/widget_tag_grid"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:numColumns="auto_fit"
+        android:columnWidth="80dp"
+        android:horizontalSpacing="4dp"
+        android:verticalSpacing="4dp"
+        android:stretchMode="columnWidth" />
+
+    <!-- カメラ起動ボタン -->
+    <FrameLayout
+        android:layout_width="72dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="8dp">
+
+        <ImageView
+            android:id="@+id/widget_camera_btn"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:background="@drawable/widget_bg"
+            android:src="@android:drawable/ic_menu_camera"
+            android:contentDescription="クイック写真"
+            android:tint="?android:attr/colorAccent" />
+    </FrameLayout>
+
+</LinearLayout>

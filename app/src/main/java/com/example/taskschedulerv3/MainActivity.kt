@@ -1,7 +1,9 @@
 package com.example.taskschedulerv3
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -37,8 +39,12 @@ import com.example.taskschedulerv3.ui.quickdraft.QuickDraftViewModel
 import com.example.taskschedulerv3.ui.schedulelist.ScheduleListViewModel
 
 class MainActivity : ComponentActivity() {
+    private val activityUiVm: TaskFlowUiViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
+
         NotificationHelper.createChannel(this)
 
         lifecycleScope.launch {
@@ -64,6 +70,25 @@ class MainActivity : ComponentActivity() {
 
             AppTheme(darkTheme = isDark) {
                 TaskSchedulerApp()
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        when (intent?.action) {
+            "com.example.taskschedulerv3.ACTION_OPEN_QUICK_DRAFT_AUTO" -> {
+                activityUiVm.openQuickDraftSheet(autoMode = true)
+                intent.action = null
+            }
+            "com.example.taskschedulerv3.ACTION_OPEN_QUICK_DRAFT" -> {
+                activityUiVm.openQuickDraftSheet(autoMode = false)
+                intent.action = null
             }
         }
     }
@@ -164,6 +189,7 @@ fun TaskSchedulerApp() {
             val allTags by listVm.allTags.collectAsState()
             QuickDraftCaptureSheet(
                 allTags = allTags,
+                autoMode = uiVm.quickDraftAutoMode,
                 onSave = { photoPath, tagIds ->
                     draftVm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
                 },
