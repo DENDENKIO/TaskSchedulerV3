@@ -12,7 +12,7 @@ interface TaskTagCrossRefDao {
     suspend fun insert(crossRef: TaskTagCrossRef)
 
     @Query("SELECT * FROM task_tag_cross_ref")
-    suspend fun getAll(): List<TaskTagCrossRef>
+    fun getAll(): Flow<List<TaskTagCrossRef>>
 
     @Query("DELETE FROM task_tag_cross_ref WHERE taskId = :taskId")
     suspend fun deleteByTaskId(taskId: Int)

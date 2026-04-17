@@ -30,7 +30,7 @@ import java.time.LocalDate
 import com.example.taskschedulerv3.ui.addtask.AddTaskBottomSheet
 import com.example.taskschedulerv3.ui.TaskFlowUiViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.CameraAlt
@@ -90,6 +90,12 @@ class MainActivity : ComponentActivity() {
                 activityUiVm.openQuickDraftSheet(autoMode = false)
                 intent.action = null
             }
+            "com.example.taskschedulerv3.ACTION_VIEW_QUICK_DRAFTS" -> {
+                // このアクションは Compose 側の NavHost で検知させるか、
+                // ViewModel を通じて遷移フラグを立てる等の処理が必要。
+                // 今回は単純化のため、Activity側でアクションを保持し、Compose側で初回ナビゲートする。
+                intent.action = "com.example.taskschedulerv3.ACTION_VIEW_QUICK_DRAFTS" 
+            }
         }
     }
 }
@@ -101,9 +107,19 @@ data class BottomNavItem(val label: String, val icon: ImageVector, val route: St
 fun TaskSchedulerApp() {
     val navController = rememberNavController()
     val uiVm: TaskFlowUiViewModel = viewModel()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // 仮登録完了後の遷移などのインテント処理
+    LaunchedEffect(Unit) {
+        val activity = context as? MainActivity
+        if (activity?.intent?.action == "com.example.taskschedulerv3.ACTION_VIEW_QUICK_DRAFTS") {
+            navController.navigate(Screen.QuickDraftList.route)
+            activity.intent.action = null
+        }
+    }
 
     val bottomItems = listOf(
-        BottomNavItem("一覧", Icons.Default.FormatListBulleted, Screen.ScheduleListV2.route),
+        BottomNavItem("一覧", Icons.AutoMirrored.Filled.FormatListBulleted, Screen.ScheduleListV2.route),
         BottomNavItem("設定", Icons.Default.Settings, Screen.Settings.route),
     )
     

@@ -50,10 +50,16 @@ class QuickCameraActivity : ComponentActivity() {
         // Windowを透明にして背景を見せる
         window.setBackgroundDrawableResource(android.R.color.transparent)
 
-        // SharedPreferencesから選択されたタグID（コンマ区切り文字列等）を取得
-        val prefs = getSharedPreferences("widget_prefs", Context.MODE_PRIVATE)
-        val selectedTagsSet = prefs.getStringSet("selected_tag_ids", emptySet()) ?: emptySet()
-        selectedTagIds = selectedTagsSet.joinToString(",")
+        // インテントから直接渡されたタグIDを取得（優先）
+        val intentTagId = intent.getIntExtra("SELECTED_TAG_ID", -1)
+        if (intentTagId != -1) {
+            selectedTagIds = intentTagId.toString()
+        } else {
+            // 後方互換/フォールバック: SharedPreferences
+            val prefs = getSharedPreferences("widget_prefs", Context.MODE_PRIVATE)
+            val selectedTagsSet = prefs.getStringSet("selected_tag_ids", emptySet()) ?: emptySet()
+            selectedTagIds = selectedTagsSet.joinToString(",")
+        }
 
         val hasPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         if (hasPerm) {
@@ -70,25 +76,32 @@ class QuickCameraActivity : ComponentActivity() {
     }
 
     private fun saveDraft(photoPath: String?) {
+        val appWidgetId = intent.getIntExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, android.appwidget.AppWidgetManager.INVALID_APPWIDGET_ID)
+        
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val db = AppDatabase.getInstance(this@QuickCameraActivity)
                 val now = LocalDateTime.now()
-                val titleStr = now.format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
+                val titleStr = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) + " 仮登録"
                 
                 val task = QuickDraftTask(
                     title = titleStr,
                     photoPath = photoPath,
                     createdAt = System.currentTimeMillis(),
-                    tagIds = selectedTagIds // 文字列として保存
+                    status = "DRAFT",
+                    tagIds = selectedTagIds
                 )
                 db.quickDraftTaskDao().insert(task)
                 
-                // タグの選択状態をリセットする
+                // タグの選択状態をリセットする (撮影に使用したウィジェットのみ)
                 val prefs = getSharedPreferences("widget_prefs", Context.MODE_PRIVATE)
-                prefs.edit().remove("selected_tag_ids").apply()
+                if (appWidgetId != android.appwidget.AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    prefs.edit().remove("selected_tag_id_$appWidgetId").apply()
+                } else {
+                    prefs.edit().clear().apply() // フォールバック
+                }
                 
-                // ウィジェットのUIも更新するIntentを投げる
+                // 全ウィジェットの表示を即時更新
                 val updateIntent = android.content.Intent(this@QuickCameraActivity, com.example.taskschedulerv3.widget.QuickPhotoWidgetProvider::class.java)
                 updateIntent.action = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE
                 val ids = android.appwidget.AppWidgetManager.getInstance(this@QuickCameraActivity)
@@ -99,9 +112,9 @@ class QuickCameraActivity : ComponentActivity() {
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                // UI非同期のためメインスレッドで終了
                 launch(Dispatchers.Main) {
                     Toast.makeText(this@QuickCameraActivity, "仮登録しました", Toast.LENGTH_SHORT).show()
+                    
                     finish()
                 }
             }

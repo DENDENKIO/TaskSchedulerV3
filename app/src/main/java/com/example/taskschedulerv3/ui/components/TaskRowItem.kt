@@ -60,7 +60,7 @@ fun calcDaysBadge(startDate: String, isCompleted: Boolean): DaysBadgeInfo {
 }
 
 // ────────────────────────────────────────────────
-// 進捗バー色 (進捗は0固定・実装時にTaskにフィールド追加可)
+// 進捗バー色
 // ────────────────────────────────────────────────
 private fun progressColor(progress: Int, isCompleted: Boolean): Color = when {
     isCompleted || progress >= 100 -> Color(0xFF27AE60)
@@ -69,7 +69,7 @@ private fun progressColor(progress: Int, isCompleted: Boolean): Color = when {
 }
 
 // ────────────────────────────────────────────────
-// タグチップ行 (最大2件 + +n 省略)
+// タグチップ行
 // ────────────────────────────────────────────────
 @Composable
 fun CompactTagRow(tags: List<Tag>, maxVisible: Int = 2) {
@@ -109,13 +109,6 @@ fun CompactTagRow(tags: List<Tag>, maxVisible: Int = 2) {
     }
 }
 
-// ────────────────────────────────────────────────
-// メインのタスク行アイテム
-//
-// @param progress  進捗率 0-100。Task entity に progress がない間は
-//                  呼び出し元から常に 0 を渡してOK。
-// @param tags      ViewModelから取得したタグリスト。不明時は emptyList()。
-// ────────────────────────────────────────────────
 @Composable
 fun TaskRowItem(
     task: Task,
@@ -126,6 +119,7 @@ fun TaskRowItem(
     val badge    = calcDaysBadge(task.startDate, task.isCompleted)
     val priColor = priorityLineColor(task.priority)
     val progColor = progressColor(task.progress, task.isCompleted)
+    val mutedColor = Color(0xFF7A7A8C)
 
     Surface(
         onClick = onClick,
@@ -135,121 +129,109 @@ fun TaskRowItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .padding(start = 12.dp, end = 12.dp),
+                    .height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-
-                // ── チェックボックス (円形) ──
-                val checkBg by animateColorAsState(
-                    if (task.isCompleted) Color(0xFF01696F) else Color.Transparent,
-                    label = "chk_bg"
-                )
+                // ── 優先度ライン (左端 3dp) ──
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (task.isCompleted) checkBg
-                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (task.isCompleted) {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = "完了",
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                    Surface(
-                        onClick = onComplete,
-                        color = Color.Transparent,
-                        modifier = Modifier.fillMaxSize()
-                    ) {}
-                }
-                Spacer(Modifier.width(10.dp))
-
-                // ── メイン情報列 ──
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    // 件名 + 進捗%
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = task.title,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
-                            color = if (task.isCompleted)
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                            else
-                                MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "${task.progress}%",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    }
-                    
-                    Spacer(Modifier.height(4.dp))
-                    
-                    // 進捗バー
-                    LinearProgressIndicator(
-                        progress = { (task.progress / 100f).coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.5.dp)
-                            .clip(RoundedCornerShape(50)),
-                        color = progColor,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                    )
-                    
-                    if (tags.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        CompactTagRow(tags = tags)
-                    }
-                }
-                Spacer(Modifier.width(12.dp))
-
-                // ── 残日数バッジ (右端集約) ──
-                Text(
-                    text = badge.label,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = badge.color,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(badge.bgColor)
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                )
-
-                Spacer(Modifier.width(8.dp))
-
-                // ── 優先度ライン (右端) ──
-                Box(
-                    modifier = Modifier
-                        .width(4.dp)
+                        .width(3.dp)
                         .fillMaxHeight()
                         .background(priColor)
                 )
+
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // ── チェックボックス ──
+                    val checkBg by animateColorAsState(
+                        if (task.isCompleted) Color(0xFF01696F) else Color.Transparent,
+                        label = "chk_bg"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (task.isCompleted) checkBg
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (task.isCompleted) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "完了",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Surface(
+                            onClick = onComplete,
+                            color = Color.Transparent,
+                            modifier = Modifier.fillMaxSize()
+                        ) {}
+                    }
+                    Spacer(Modifier.width(12.dp))
+
+                    // ── メイン情報 ──
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = task.title,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
+                                color = if (task.isCompleted) mutedColor else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${task.progress}%",
+                                fontSize = 10.sp,
+                                color = if (task.isCompleted) mutedColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                        
+                        Spacer(Modifier.height(4.dp))
+                        
+                        LinearProgressIndicator(
+                            progress = { (task.progress / 100f).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)),
+                            color = progColor,
+                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
+                        
+                        if (tags.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            CompactTagRow(tags = tags)
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+
+                    // ── 右端バッジ ──
+                    Text(
+                        text = badge.label,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (task.isCompleted) mutedColor else badge.color,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (task.isCompleted) MaterialTheme.colorScheme.surfaceVariant else badge.bgColor)
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
             }
-            HorizontalDivider(
-                thickness = 0.5.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-            )
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
         }
     }
 }

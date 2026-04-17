@@ -65,6 +65,7 @@
             android:label="仮登録カメラ">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.example.taskschedulerv3.ACTION_CYCLE_TAG" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
@@ -77,11 +78,7 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:exported="false" />
 
-        <!-- Widget Tag Service -->
-        <service
-            android:name=".widget.WidgetTagService"
-            android:permission="android.permission.BIND_REMOTEVIEWS"
-            android:exported="false" />
+
 
     </application>
 

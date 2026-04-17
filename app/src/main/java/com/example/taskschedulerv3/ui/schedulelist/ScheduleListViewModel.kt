@@ -10,17 +10,18 @@ import com.example.taskschedulerv3.data.repository.TagRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
 import com.example.taskschedulerv3.ui.components.DisplayMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
     private val repo = TaskRepository(db.taskDao())
     private val tagRepo = TagRepository(db.tagDao())
     private val crossRefDao = db.taskTagCrossRefDao()
-    val draftRepo = QuickDraftRepository(db.quickDraftTaskDao(), db.taskDao(), crossRefDao)
+    val draftRepo = QuickDraftRepository(db.quickDraftTaskDao(), db.taskDao(), crossRefDao, db.photoMemoDao())
 
     val searchQuery = MutableStateFlow("")
     val sortOption = MutableStateFlow(SortOption.DATE_ASC)
@@ -46,12 +47,35 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     val drafts = draftRepo.getDrafts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** displayMode に応じた基本タスクFlow */
+    /** displayMode に応じた基本タスクFlow (DRAFT以外) */
     private val baseTaskFlow: Flow<List<Task>> = displayMode.flatMapLatest { mode ->
+        val today = LocalDate.now()
         when (mode) {
             DisplayMode.RECURRING -> repo.getRecurring()
             DisplayMode.DONE -> repo.getCompleted()
-            else -> repo.getAll()
+            DisplayMode.TODAY -> repo.getAll().map { list ->
+                list.filter { task ->
+                    if (task.isCompleted || task.isIndefinite) return@filter false
+                    if (task.scheduleType == ScheduleType.RECURRING) {
+                        com.example.taskschedulerv3.util.RecurrenceCalculator.occursOn(task, today)
+                    } else {
+                        try { java.time.LocalDate.parse(task.startDate) == today } catch (_: Exception) { false }
+                    }
+                }
+            }
+            DisplayMode.WEEK -> {
+                val weekEnd = today.plusDays(6)
+                repo.getAll().map { list ->
+                    list.filter { task ->
+                        if (task.isCompleted || task.isIndefinite) return@filter false
+                        val d = try { java.time.LocalDate.parse(task.startDate) } catch (_: Exception) { null }
+                        d != null && !d.isBefore(today) && !d.isAfter(weekEnd)
+                    }
+                }
+            }
+            DisplayMode.INDEFINITE -> repo.getAll().map { list -> list.filter { it.isIndefinite && !it.isCompleted } }
+            DisplayMode.DRAFT -> flowOf(emptyList()) // DRAFTは別Flow(drafts)で扱うため
+            else -> repo.getAll().map { list -> list.filter { !it.isCompleted } }
         }
     }
 
@@ -68,6 +92,17 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** 各タスクに対応するタグリストのマップ */
+    val taskTagMap: StateFlow<Map<Int, List<Tag>>> = combine(
+        crossRefDao.getAll(),
+        allTags
+    ) { refs, tags ->
+        refs.groupBy { it.taskId }.mapValues { entry ->
+            val tagIds = entry.value.map { it.tagId }
+            tags.filter { it.id in tagIds }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val tasks: StateFlow<List<Task>> = combine(
         baseTaskFlow,

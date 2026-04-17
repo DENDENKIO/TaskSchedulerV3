@@ -17,7 +17,7 @@ import java.time.format.DateTimeFormatter
 
 class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
-    val repo = QuickDraftRepository(db.quickDraftTaskDao(), db.taskDao(), db.taskTagCrossRefDao())
+    val repo = QuickDraftRepository(db.quickDraftTaskDao(), db.taskDao(), db.taskTagCrossRefDao(), db.photoMemoDao())
 
     val drafts: StateFlow<List<QuickDraftTask>> = repo.getDrafts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

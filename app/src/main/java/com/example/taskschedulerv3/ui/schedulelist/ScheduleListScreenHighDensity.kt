@@ -3,12 +3,13 @@ package com.example.taskschedulerv3.ui.schedulelist
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,16 +22,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.taskschedulerv3.data.model.*
 import com.example.taskschedulerv3.navigation.Screen
+import com.example.taskschedulerv3.ui.components.DisplayMode
 import com.example.taskschedulerv3.ui.components.TaskRowItem
-import com.example.taskschedulerv3.util.RecurrenceCalculator
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
-
-private enum class ListTab(val label: String) {
-    TODAY("今日"), WEEK("今週"), INDEFINITE("無期限"), ALL("すべて"), DONE("完了")
-}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -40,69 +37,54 @@ fun ScheduleListScreenHighDensity(
     vm: ScheduleListViewModel = viewModel()
 ) {
     val tasks by vm.tasks.collectAsState()
+    val drafts by vm.drafts.collectAsState()
     val allTags by vm.allTags.collectAsState()
     val sortOption by vm.sortOption.collectAsState()
+    val displayMode by vm.displayMode.collectAsState()
+    val selectedTagId by vm.selectedTagId.collectAsState()
+    val taskTagMap by vm.taskTagMap.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(ListTab.TODAY) }
     var showSortMenu by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    val searchQuery by vm.searchQuery.collectAsState()
     var filteredPriority by remember { mutableStateOf<Int?>(null) }
 
     val today = LocalDate.now()
 
-    val displayedTasks = remember(tasks, selectedTab, searchQuery, filteredPriority) {
-        val withSearch = tasks.filter { task ->
-            if (searchQuery.isBlank()) true
-            else task.title.contains(searchQuery, ignoreCase = true)
-        }
-        val withTab = when (selectedTab) {
-            ListTab.TODAY -> withSearch.filter { task ->
-                when (task.scheduleType) {
-                    ScheduleType.RECURRING -> RecurrenceCalculator.occursOn(task, today)
-                    else -> try { LocalDate.parse(task.startDate) == today } catch (_: Exception) { false }
-                } && !task.isCompleted && !task.isIndefinite
-            }
-            ListTab.WEEK -> {
-                val weekEnd = today.plusDays(6)
-                withSearch.filter { task ->
-                    val d = try { LocalDate.parse(task.startDate) } catch (_: Exception) { null }
-                    d != null && !d.isBefore(today) && !d.isAfter(weekEnd) && !task.isCompleted && !task.isIndefinite
+    val finalTasks = remember(tasks, filteredPriority) {
+        if (filteredPriority == null) tasks
+        else tasks.filter { it.priority == filteredPriority }
+    }
+
+    val grouped = remember(finalTasks, displayMode) {
+        if (displayMode == DisplayMode.DRAFT) emptyMap<String, List<Task>>()
+        else {
+            finalTasks.groupBy { task ->
+                when {
+                    task.isIndefinite -> "無期限"
+                    task.scheduleType == ScheduleType.RECURRING -> "繰り返し"
+                    else -> task.startDate
+                }
+            }.toSortedMap { a, b ->
+                when {
+                    a == b -> 0
+                    a == "無期限" -> 1
+                    b == "無期限" -> -1
+                    a == "繰り返し" -> if (b == "無期限") -1 else 1
+                    b == "繰り返し" -> if (a == "無期限") 1 else -1
+                    else -> a.compareTo(b)
                 }
             }
-            ListTab.INDEFINITE -> withSearch.filter { it.isIndefinite && !it.isCompleted }
-            ListTab.DONE -> withSearch.filter { it.isCompleted }
-            ListTab.ALL -> withSearch.filter { !it.isCompleted }
-        }
-        withTab.filter { task ->
-            filteredPriority == null || task.priority == filteredPriority
         }
     }
 
-    val grouped = remember(displayedTasks) {
-        displayedTasks.groupBy { task ->
-            when {
-                task.isIndefinite -> "無期限"
-                task.scheduleType == ScheduleType.RECURRING -> today.toString()
-                else -> task.startDate
-            }
-        }.toSortedMap { a, b ->
-            when {
-                a == b -> 0
-                a == "無期限" -> 1
-                b == "無期限" -> -1
-                else -> a.compareTo(b)
-            }
-        }
-    }
-
-    Column {
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TopAppBar(
             title = {
                 if (showSearch) {
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = { vm.setSearchQuery(it) },
                         placeholder = { Text("件名で検索…", fontSize = 13.sp) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(end = 8.dp).height(48.dp),
@@ -113,11 +95,11 @@ fun ScheduleListScreenHighDensity(
                 }
             },
             actions = {
-                IconButton(onClick = { showSearch = !showSearch; if (!showSearch) searchQuery = "" }) {
+                IconButton(onClick = { showSearch = !showSearch; if (!showSearch) vm.setSearchQuery("") }) {
                     Icon(Icons.Default.Search, null)
                 }
                 Box {
-                    IconButton(onClick = { showSortMenu = true }) { Icon(Icons.Default.Sort, null) }
+                    IconButton(onClick = { showSortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, null) }
                     DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                         listOf(
                             SortOption.DATE_ASC to "日付（昇順）", SortOption.DATE_DESC to "日付（降順）",
@@ -134,97 +116,151 @@ fun ScheduleListScreenHighDensity(
             }
         )
 
-        TabRow(selectedTabIndex = selectedTab.ordinal, containerColor = MaterialTheme.colorScheme.surface, divider = {}) {
-            ListTab.entries.forEach { tab ->
+        ScrollableTabRow(
+            selectedTabIndex = DisplayMode.entries.indexOf(displayMode),
+            edgePadding = 12.dp,
+            containerColor = MaterialTheme.colorScheme.surface,
+            divider = {}
+        ) {
+            DisplayMode.entries.forEach { mode ->
                 Tab(
-                    selected = selectedTab == tab,
-                    onClick = { selectedTab = tab },
-                    text = { Text(tab.label, fontSize = 12.sp, fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal) }
+                    selected = displayMode == mode,
+                    onClick = { vm.setDisplayMode(mode) },
+                    text = { Text(mode.label, fontSize = 12.sp, fontWeight = if (displayMode == mode) FontWeight.Bold else FontWeight.Normal) }
                 )
             }
         }
 
-        ScrollableTabRow(selectedTabIndex = 0, edgePadding = 14.dp, containerColor = MaterialTheme.colorScheme.surface, divider = {}, indicator = {}, modifier = Modifier.height(44.dp)) {
-            FilterChip(selected = filteredPriority == null, onClick = { filteredPriority = null }, label = { Text("すべて", fontSize = 11.sp) }, modifier = Modifier.padding(end = 4.dp))
-            listOf(0 to "🔴 高", 1 to "🟡 中", 2 to "🟢 低").forEach { (pri, label) ->
-                FilterChip(selected = filteredPriority == pri, onClick = { filteredPriority = if (filteredPriority == pri) null else pri }, label = { Text(label, fontSize = 11.sp) }, modifier = Modifier.padding(end = 4.dp))
+        ScrollableTabRow(
+            selectedTabIndex = 0,
+            edgePadding = 12.dp,
+            containerColor = MaterialTheme.colorScheme.surface,
+            divider = {},
+            indicator = {},
+            modifier = Modifier.height(48.dp)
+        ) {
+            Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                FilterChip(
+                    selected = selectedTagId == null,
+                    onClick = { vm.setTagFilter(null) },
+                    label = { Text("全タグ", fontSize = 11.sp) },
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                allTags.forEach { tag ->
+                    FilterChip(
+                        selected = selectedTagId == tag.id,
+                        onClick = { vm.setTagFilter(if (selectedTagId == tag.id) null else tag.id) },
+                        label = { Text(tag.name, fontSize = 11.sp) },
+                        modifier = Modifier.padding(end = 4.dp)
+                    )
+                }
+                
+                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 8.dp))
+
+                FilterChip(
+                    selected = filteredPriority == null,
+                    onClick = { filteredPriority = null },
+                    label = { Text("全優先度", fontSize = 11.sp) },
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                listOf(0 to "🔴 高", 1 to "🟡 中", 2 to "🟢 低").forEach { (pri, label) ->
+                    FilterChip(
+                        selected = filteredPriority == pri,
+                        onClick = { filteredPriority = if (filteredPriority == pri) null else pri },
+                        label = { Text(label, fontSize = 11.sp) },
+                        modifier = Modifier.padding(end = 4.dp)
+                    )
+                }
             }
         }
 
         Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(horizontal = 14.dp, vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("${displayedTasks.size} 件", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val count = if (displayMode == DisplayMode.DRAFT) drafts.size else finalTasks.size
+            Text("$count 件", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(today.format(DateTimeFormatter.ofPattern("yyyy年M月d日(E)", Locale.JAPANESE)), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        if (displayedTasks.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "予定がありません", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
+        if (displayMode == DisplayMode.DRAFT) {
+            if (drafts.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(text = "仮登録はありません", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+                    items(drafts, key = { "draft_${it.id}" }) { draft ->
+                        ListItem(
+                            headlineContent = { Text(draft.title, fontSize = 13.sp, fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(draft.tagIds?.takeIf { it.isNotEmpty() } ?: "タグなし", fontSize = 10.sp) },
+                            modifier = Modifier.clickable { navController.navigate(Screen.QuickDraftEdit.createRoute(draft.id)) }
+                        )
+                        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    }
+                }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 80.dp) // 下部に余白を追加
-            ) {
-                grouped.forEach { (dateStr, dateTasks) ->
-                    stickyHeader(key = "header_$dateStr") {
-                        val headerText = try {
-                            if (dateStr == "無期限") "無期限"
-                            else {
-                                val d = LocalDate.parse(dateStr)
-                                val dow = d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.JAPANESE)
-                                when {
-                                    d == today -> "今日  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
-                                    d == today.plusDays(1) -> "明日  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
-                                    else -> d.format(DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPANESE))
-                                }
-                            }
-                        } catch (_: Exception) { dateStr }
-                        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 14.dp, vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = headerText, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
-                            Text(text = "${dateTasks.size}件", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f))
-                        }
-                        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    }
-                    items(dateTasks, key = { it.id }) { task ->
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { value ->
-                                when (value) {
-                                    SwipeToDismissBoxValue.EndToStart -> { vm.softDelete(task); true }
-                                    SwipeToDismissBoxValue.StartToEnd -> { vm.toggleComplete(task); false }
-                                    else -> false
-                                }
-                            }
-                        )
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            backgroundContent = {
-                                val direction = dismissState.dismissDirection
-                                val color by animateColorAsState(
-                                    when (dismissState.targetValue) {
-                                        SwipeToDismissBoxValue.EndToStart -> Color(0xFFE53935)
-                                        SwipeToDismissBoxValue.StartToEnd -> Color(0xFF43A047)
-                                        else -> Color.Transparent
-                                    }, label = "swipe_bg"
-                                )
-                                Box(
-                                    modifier = Modifier.fillMaxSize().background(color).padding(horizontal = 20.dp),
-                                    contentAlignment = when (direction) {
-                                        SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                                        else -> Alignment.CenterEnd
+            if (finalTasks.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(text = "予定がありません", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    grouped.forEach { (dateStr, dateTasks) ->
+                        stickyHeader(key = "header_$dateStr") {
+                            val headerText = try {
+                                when (dateStr) {
+                                    "無期限" -> "無期限"
+                                    "繰り返し" -> "繰り返し予定"
+                                    else -> {
+                                        val d = LocalDate.parse(dateStr)
+                                        val dow = d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.JAPANESE)
+                                        when {
+                                            d == today -> "今日  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
+                                            d == today.plusDays(1) -> "明日  ${d.format(DateTimeFormatter.ofPattern("M/d"))}（$dow）"
+                                            else -> d.format(DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPANESE))
+                                        }
                                     }
-                                ) {
-                                    Text(
-                                        text = when (direction) {
-                                            SwipeToDismissBoxValue.StartToEnd -> if (task.isCompleted) "未完了に戻す" else "完了"
-                                            else -> "削除"
-                                        },
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.labelLarge
+                                }
+                            } catch (_: Exception) { dateStr }
+                            Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 14.dp, vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = headerText, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
+                                Text(text = "${dateTasks.size}件", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f))
+                            }
+                            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        }
+                        items(dateTasks, key = { it.id }) { task ->
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { value ->
+                                    when (value) {
+                                        SwipeToDismissBoxValue.EndToStart -> { vm.softDelete(task); true }
+                                        SwipeToDismissBoxValue.StartToEnd -> { vm.toggleComplete(task); false }
+                                        else -> false
+                                    }
+                                }
+                            )
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                backgroundContent = {
+                                    val color by animateColorAsState(
+                                        when (dismissState.targetValue) {
+                                            SwipeToDismissBoxValue.EndToStart -> Color(0xFFE53935)
+                                            SwipeToDismissBoxValue.StartToEnd -> Color(0xFF43A047)
+                                            else -> Color.Transparent
+                                        }, label = "swipe_bg"
+                                    )
+                                    Box(modifier = Modifier.fillMaxSize().background(color))
+                                },
+                                content = {
+                                    TaskRowItem(
+                                        task = task,
+                                        tags = taskTagMap[task.id] ?: emptyList(),
+                                        onComplete = { vm.toggleComplete(task) },
+                                        onClick = { navController.navigate(Screen.TaskDetail.createRoute(task.id)) }
                                     )
                                 }
-                            }
-                        ) {
-                            TaskRowItem(task = task, tags = allTags, onComplete = { vm.toggleComplete(task) }, onClick = { navController.navigate(Screen.TaskDetail.createRoute(task.id)) })
+                            )
                         }
                     }
                 }

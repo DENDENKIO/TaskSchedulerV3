@@ -1,20 +1,18 @@
 package com.example.taskschedulerv3.data.repository
 
+import com.example.taskschedulerv3.data.db.PhotoMemoDao
 import com.example.taskschedulerv3.data.db.QuickDraftTaskDao
 import com.example.taskschedulerv3.data.db.TaskDao
 import com.example.taskschedulerv3.data.db.TaskTagCrossRefDao
-import com.example.taskschedulerv3.data.model.QuickDraftTask
-import com.example.taskschedulerv3.data.model.RecurrencePattern
-import com.example.taskschedulerv3.data.model.ScheduleType
-import com.example.taskschedulerv3.data.model.Task
-import com.example.taskschedulerv3.data.model.TaskTagCrossRef
+import com.example.taskschedulerv3.data.model.*
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 
 class QuickDraftRepository(
     private val draftDao: QuickDraftTaskDao,
     private val taskDao: TaskDao,
-    private val crossRefDao: TaskTagCrossRefDao
+    private val crossRefDao: TaskTagCrossRefDao,
+    private val photoDao: PhotoMemoDao
 ) {
     /** アクティブな仮登録一覧 (status=DRAFT) */
     fun getDrafts(): Flow<List<QuickDraftTask>> = draftDao.getDrafts()
@@ -68,6 +66,18 @@ class QuickDraftRepository(
 
         // Task を挿入
         val taskId = taskDao.insert(newTask)
+
+        // 写真があれば引き継ぐ
+        if (!draft.photoPath.isNullOrBlank()) {
+            val photoMemo = PhotoMemo(
+                taskId = taskId.toInt(),
+                date = startDate,
+                imagePath = draft.photoPath,
+                ocrText = draft.ocrText,
+                createdAt = now
+            )
+            photoDao.insert(photoMemo)
+        }
 
         // draftのtagIds(文字列)をリストに変換
         val draftTagIds = draft.tagIds?.split(",")?.mapNotNull { it.toIntOrNull() } ?: emptyList()

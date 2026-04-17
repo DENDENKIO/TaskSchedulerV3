@@ -3,88 +3,121 @@ package com.example.taskschedulerv3.widget
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.RemoteViews
 import com.example.taskschedulerv3.R
+import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.ui.quickdraft.QuickCameraActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class QuickPhotoWidgetProvider : AppWidgetProvider() {
 
-    override fun onUpdate(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetIds: IntArray
-    ) {
+    companion object {
+        const val ACTION_CYCLE_TAG = "com.example.taskschedulerv3.ACTION_CYCLE_TAG"
+        private const val PREFS_NAME = "widget_prefs"
+        private const val KEY_SELECTED_TAG_ID = "selected_tag_id_"
+    }
+
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (appWidgetId in appWidgetIds) {
-            updateAppWidget(context, appWidgetManager, appWidgetId)
+            CoroutineScope(Dispatchers.IO).launch {
+                updateAppWidget(context, appWidgetManager, appWidgetId)
+            }
         }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == "com.example.taskschedulerv3.ACTION_WIDGET_TAG_CLICK") {
-            val tagId = intent.getStringExtra("TAG_ID") ?: return
-            
-            val prefs = context.getSharedPreferences("widget_prefs", Context.MODE_PRIVATE)
-            val selectedTags = prefs.getStringSet("selected_tag_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-            
-            if (selectedTags.contains(tagId)) {
-                selectedTags.remove(tagId)
-            } else {
-                selectedTags.add(tagId)
+        if (intent.action == ACTION_CYCLE_TAG) {
+            val appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+
+            val pendingResult = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = AppDatabase.getInstance(context)
+                    val allTags = db.tagDao().getAll().first()
+                    
+                    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    val currentId = if (prefs.contains(KEY_SELECTED_TAG_ID + appWidgetId)) {
+                        prefs.getInt(KEY_SELECTED_TAG_ID + appWidgetId, -1)
+                    } else null
+
+                    val nextId = when {
+                        allTags.isEmpty() -> null
+                        currentId == null || currentId == -1 -> allTags[0].id
+                        else -> {
+                            val currentIndex = allTags.indexOfFirst { it.id == currentId }
+                            if (currentIndex == -1 || currentIndex == allTags.size - 1) null
+                            else allTags[currentIndex + 1].id
+                        }
+                    }
+
+                    if (nextId == null) {
+                        prefs.edit().remove(KEY_SELECTED_TAG_ID + appWidgetId).apply()
+                    } else {
+                        prefs.edit().putInt(KEY_SELECTED_TAG_ID + appWidgetId, nextId).apply()
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        updateAppWidget(context, AppWidgetManager.getInstance(context), appWidgetId)
+                    }
+                } finally {
+                    pendingResult.finish()
+                }
             }
-            
-            prefs.edit().putStringSet("selected_tag_ids", selectedTags).apply()
-            
-            // GridViewのデータを更新
-            val appWidgetManager = AppWidgetManager.getInstance(context)
-            val thisWidget = ComponentName(context, QuickPhotoWidgetProvider::class.java)
-            val appWidgetIds = appWidgetManager.getAppWidgetIds(thisWidget)
-            appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.widget_tag_grid)
         }
     }
 
-    private fun updateAppWidget(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetId: Int
-    ) {
+    private suspend fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
         val views = RemoteViews(context.packageName, R.layout.widget_quick_photo)
+        
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val selectedId = if (prefs.contains(KEY_SELECTED_TAG_ID + appWidgetId)) {
+            prefs.getInt(KEY_SELECTED_TAG_ID + appWidgetId, -1)
+        } else null
 
-        // タグ一覧を表示するための RemoteAdapter の設定
-        val serviceIntent = Intent(context, WidgetTagService::class.java).apply {
+        val tagName = if (selectedId != null && selectedId != -1) {
+            AppDatabase.getInstance(context).tagDao().getById(selectedId)?.name ?: "未選択"
+        } else "未選択"
+
+        // UI更新
+        views.setTextViewText(R.id.widget_selected_tag, tagName)
+
+        // 順送りボタン (タグ表示エリア全体をクリッカブルに)
+        val cycleIntent = Intent(context, QuickPhotoWidgetProvider::class.java).apply {
+            action = ACTION_CYCLE_TAG
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-            data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
         }
-        views.setRemoteAdapter(R.id.widget_tag_grid, serviceIntent)
-
-        // タップしたタグのIDを受け取って onReceive で処理するためのテンプレート
-        val tagClickIntent = Intent(context, QuickPhotoWidgetProvider::class.java).apply {
-            action = "com.example.taskschedulerv3.ACTION_WIDGET_TAG_CLICK"
-        }
-        val tagClickPendingIntent = PendingIntent.getBroadcast(
+        val cyclePendingIntent = PendingIntent.getBroadcast(
             context,
-            0,
-            tagClickIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            appWidgetId,
+            cycleIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        views.setPendingIntentTemplate(R.id.widget_tag_grid, tagClickPendingIntent)
+        views.setOnClickPendingIntent(R.id.widget_tag_cycle_btn, cyclePendingIntent)
 
-        // カメラボタン: 透明な QuickCameraActivity を起動
+        // カメラボタン
         val cameraIntent = Intent(context, QuickCameraActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            putExtra("SELECTED_TAG_ID", selectedId ?: -1)
         }
         val cameraPendingIntent = PendingIntent.getActivity(
             context,
-            appWidgetId, // ユニークなリクエストコード
+            appWidgetId + 1000, 
             cameraIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         views.setOnClickPendingIntent(R.id.widget_camera_btn, cameraPendingIntent)
 
-        appWidgetManager.updateAppWidget(appWidgetId, views)
+        withContext(Dispatchers.Main) {
+            appWidgetManager.updateAppWidget(appWidgetId, views)
+        }
     }
 }
