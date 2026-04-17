@@ -4,12 +4,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,6 +23,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.QuickDraftTask
+import com.example.taskschedulerv3.data.model.Tag
+import com.example.taskschedulerv3.ui.schedulelist.ScheduleListViewModel
 import com.example.taskschedulerv3.util.PhotoFileManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,8 +40,14 @@ fun QuickDraftEditScreen(
     var startDate by remember { mutableStateOf("") }
     var startTime by remember { mutableStateOf("") }
     var priority by remember { mutableIntStateOf(1) }
+    var selectedTagIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showConvertDialog by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+
+    val listVm: ScheduleListViewModel = viewModel()
+    val allTags by listVm.allTags.collectAsState()
 
     val convertSuccess by vm.convertSuccess.collectAsState()
 
@@ -47,6 +58,7 @@ fun QuickDraftEditScreen(
         loaded?.let {
             title = it.title
             memo = it.description ?: ""
+            selectedTagIds = it.tagIds?.split(",")?.filter { s -> s.isNotBlank() }?.map { s -> s.toInt() }?.toSet() ?: emptySet()
         }
     }
 
@@ -87,14 +99,60 @@ fun QuickDraftEditScreen(
                 TextButton(onClick = {
                     // まず保存してから変換
                     draft?.let {
-                        vm.updateDraft(it.copy(title = title, description = memo.ifBlank { null }))
-                        vm.convertToTask(it, startDate.ifBlank { java.time.LocalDate.now().toString() }, priority)
+                        val updatedTags = if (selectedTagIds.isEmpty()) null else selectedTagIds.joinToString(",")
+                        vm.updateDraft(it.copy(title = title, description = memo.ifBlank { null }, tagIds = updatedTags))
+                        vm.convertToTask(it.copy(title = title, description = memo.ifBlank { null }, tagIds = updatedTags), startDate.ifBlank { java.time.LocalDate.now().toString() }, priority)
                     }
                     showConvertDialog = false
                 }) { Text("本登録する") }
             },
             dismissButton = {
                 TextButton(onClick = { showConvertDialog = false }) { Text("キャンセル") }
+            }
+        )
+    }
+
+    // 日付選択ダイアログ
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val local = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                        startDate = local.toString()
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("キャンセル") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    // 時刻選択ダイアログ
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState()
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    startTime = "%02d:%02d".format(timePickerState.hour, timePickerState.minute)
+                    showTimePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) { Text("キャンセル") }
+            },
+            text = {
+                TimePicker(state = timePickerState)
             }
         )
     }
@@ -112,7 +170,8 @@ fun QuickDraftEditScreen(
                     // 保存ボタン
                     IconButton(onClick = {
                         draft?.let {
-                            vm.updateDraft(it.copy(title = title, description = memo.ifBlank { null }))
+                            val updatedTags = if (selectedTagIds.isEmpty()) null else selectedTagIds.joinToString(",")
+                            vm.updateDraft(it.copy(title = title, description = memo.ifBlank { null }, tagIds = updatedTags))
                             navController.popBackStack()
                         }
                     }, enabled = title.isNotBlank()) {
@@ -159,23 +218,28 @@ fun QuickDraftEditScreen(
                 minLines = 2
             )
 
-            OutlinedTextField(
-                value = startDate,
-                onValueChange = { startDate = it },
-                label = { Text("日付 (yyyy-MM-dd)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text(java.time.LocalDate.now().toString()) }
-            )
-
-            OutlinedTextField(
-                value = startTime,
-                onValueChange = { startTime = it },
-                label = { Text("時刻 (HH:mm)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("09:00") }
-            )
+            // 日時選択（ツールを使用）
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(12.dp)
+                ) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(startDate.ifEmpty { "日付を選択" })
+                }
+                
+                OutlinedButton(
+                    onClick = { showTimePicker = true },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(12.dp)
+                ) {
+                    Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(startTime.ifEmpty { "時刻を選択" })
+                }
+            }
 
             // 優先度
             Column {
@@ -187,6 +251,38 @@ fun QuickDraftEditScreen(
                             onClick = { priority = v },
                             label = { Text(label) }
                         )
+                    }
+                }
+            }
+
+            // タグ選択
+            if (allTags.isNotEmpty()) {
+                Column {
+                    Text("タグ", style = MaterialTheme.typography.labelLarge)
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(allTags.size) { index ->
+                            val tag = allTags[index]
+                            val isSelected = tag.id in selectedTagIds
+                            val tagColor = runCatching {
+                                androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(tag.color))
+                            }.getOrElse { MaterialTheme.colorScheme.primary }
+
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedTagIds = if (isSelected) selectedTagIds - tag.id else selectedTagIds + tag.id
+                                },
+                                label = { Text(tag.name) },
+                                leadingIcon = if (isSelected) {
+                                    { Icon(Icons.Default.Done, null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = tagColor.copy(alpha = 0.2f),
+                                    selectedLabelColor = tagColor,
+                                    selectedLeadingIconColor = tagColor
+                                )
+                            )
+                        }
                     }
                 }
             }

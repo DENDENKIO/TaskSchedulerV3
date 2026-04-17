@@ -4,18 +4,18 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_bg_panel"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="8dp">
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="8dp">
 
-    <!-- 1行目: タグ表示・切替エリア -->
+    <!-- 左〜中: 現在のタグ表示 兼 切替エリア -->
     <LinearLayout
         android:id="@+id/widget_tag_cycle_btn"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:padding="6dp"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="start|center_vertical"
         android:clickable="true"
         android:focusable="true">
 
@@ -31,45 +31,23 @@
             android:ellipsize="end" />
 
         <TextView
-            android:id="@+id/widget_tag_cycle_hint"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="タップで切り替え"
+            android:text=" ↩"
             android:textColor="#9090A8"
             android:textSize="9sp"
-            android:layout_marginTop="2dp" />
+            android:alpha="0.5" />
     </LinearLayout>
 
-    <!-- スペーサー（互換性を考慮して View ではなく透明なダミーとして定義） -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="8dp"
-        android:orientation="horizontal" />
-
-    <!-- 2行目: カメラ起動ボタン (大きめに配置) -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <ImageView
-            android:id="@+id/widget_camera_btn"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:layout_gravity="center"
-            android:padding="14dp"
-            android:background="@drawable/widget_bg"
-            android:src="@android:drawable/ic_menu_camera"
-            android:contentDescription="即カメラ起動" />
-    </FrameLayout>
-
-    <!-- 3行目: 補助テキスト -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="撮影後に仮登録保存"
-        android:textColor="#E8E8F0"
-        android:textSize="9sp"
-        android:layout_marginTop="6dp" />
+    <!-- 右: カメラ起動ボタン (サイズをコンパクト化) -->
+    <ImageView
+        android:id="@+id/widget_camera_btn"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:padding="6dp"
+        android:background="@drawable/widget_bg"
+        android:src="@android:drawable/ic_menu_camera"
+        android:contentDescription="即カメラ起動"
+        android:tint="#7C6AFF" />
 
 </LinearLayout>

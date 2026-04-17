@@ -11,6 +11,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 
 @Composable
 fun OcrResultDialog(
@@ -41,16 +43,7 @@ fun OcrResultDialog(
         }
     }
 
-    // 自動コピー（ワンタップで即コピー、ドラッグは0.5秒停止後にコピー）
-    LaunchedEffect(textFieldValue.selection) {
-        if (targetText.isNotBlank() && targetText != text) {
-            if (!isCollapsed) {
-                kotlinx.coroutines.delay(500)
-            }
-            clipboardManager.setText(AnnotatedString(targetText))
-            Toast.makeText(context, if (isCollapsed) "1行コピーしました" else "選択範囲をコピーしました", Toast.LENGTH_SHORT).show()
-        }
-    }
+
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -58,7 +51,7 @@ fun OcrResultDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "タップで1行自動コピー、ドラッグで選択範囲をコピーします。",
+                    "テキストを選択して下のボタンで適用・コピーできます。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -89,7 +82,7 @@ fun OcrResultDialog(
                         enabled = targetText.isNotBlank(),
                         contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
-                        Text(if (isCollapsed) "1行をメモに追記" else "選択範囲を空き行に追記", style = MaterialTheme.typography.labelMedium)
+                        Text(if (isCollapsed) "1行をメモ追記" else "選択範囲をメモ追記", style = MaterialTheme.typography.labelMedium)
                     }
                     OutlinedButton(
                         onClick = { onApplyToDescription(targetText, false); onDismiss() },
@@ -99,6 +92,19 @@ fun OcrResultDialog(
                     ) {
                         Text("メモを置き換え", style = MaterialTheme.typography.labelMedium)
                     }
+                }
+                // コピーボタンを追加
+                OutlinedButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(targetText))
+                        Toast.makeText(context, if (isCollapsed) "1行コピーしました" else "選択範囲をコピーしました", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = targetText.isNotBlank()
+                ) {
+                    Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isCollapsed) "1行をコピー" else "選択範囲をコピー")
                 }
                 // 全文適用も残しておく
                 TextButton(

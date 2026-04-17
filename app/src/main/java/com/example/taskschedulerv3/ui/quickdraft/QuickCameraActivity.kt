@@ -115,6 +115,12 @@ class QuickCameraActivity : ComponentActivity() {
                 launch(Dispatchers.Main) {
                     Toast.makeText(this@QuickCameraActivity, "仮登録しました", Toast.LENGTH_SHORT).show()
                     
+                    // 保存後に仮登録管理画面へ遷移
+                    val mainIntent = android.content.Intent(this@QuickCameraActivity, com.example.taskschedulerv3.MainActivity::class.java).apply {
+                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        action = "com.example.taskschedulerv3.ACTION_VIEW_QUICK_DRAFTS"
+                    }
+                    startActivity(mainIntent)
                     finish()
                 }
             }

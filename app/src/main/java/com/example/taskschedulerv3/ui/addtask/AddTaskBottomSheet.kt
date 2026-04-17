@@ -186,7 +186,7 @@ fun AddTaskBottomSheet(
                     ) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(startDate.ifEmpty { "日付" })
+                        Text(startDate.ifEmpty { "日付を選択" })
                     }
                     OutlinedButton(
                         onClick = { showTimePicker = true },
@@ -195,7 +195,7 @@ fun AddTaskBottomSheet(
                     ) {
                         Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(startTime.ifEmpty { "時刻" })
+                        Text(startTime.ifEmpty { "時刻を選択" })
                     }
                 }
             }

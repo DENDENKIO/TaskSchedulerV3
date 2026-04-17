@@ -23,6 +23,16 @@ class QuickPhotoWidgetProvider : AppWidgetProvider() {
         private const val KEY_SELECTED_TAG_ID = "selected_tag_id_"
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        for (appWidgetId in appWidgetIds) {
+            editor.remove(KEY_SELECTED_TAG_ID + appWidgetId)
+        }
+        editor.apply()
+    }
+
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (appWidgetId in appWidgetIds) {
             CoroutineScope(Dispatchers.IO).launch {

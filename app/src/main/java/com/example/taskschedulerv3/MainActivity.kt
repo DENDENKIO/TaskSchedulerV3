@@ -161,9 +161,12 @@ fun TaskSchedulerApp() {
         floatingActionButton = {
             val showFab = currentRoute?.startsWith("schedule_list") == true
             if (showFab) {
-                Column(
-                    horizontalAlignment = androidx.compose.ui.Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp, end = 16.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
                     // 仮登録FAB（小さめ）
                     SmallFloatingActionButton(
@@ -173,8 +176,9 @@ fun TaskSchedulerApp() {
                     ) {
                         Icon(Icons.Default.CameraAlt, "仮登録")
                     }
-                    // 通常タスク追加FAB
-                    FloatingActionButton(
+                    Spacer(Modifier.width(12.dp))
+                    // 通常タスク追加FAB（サイズを揃えるためにSmallへ変更）
+                    SmallFloatingActionButton(
                         onClick = { uiVm.openAddTask() },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary

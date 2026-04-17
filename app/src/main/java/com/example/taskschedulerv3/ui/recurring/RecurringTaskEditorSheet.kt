@@ -3,6 +3,8 @@ package com.example.taskschedulerv3.ui.recurring
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -30,6 +32,7 @@ fun RecurringTaskEditorSheet(
     var startDate by remember { mutableStateOf(initialStartDate) }
     var selectedPattern by remember { mutableStateOf(initialPattern) }
     var daysInput by remember { mutableStateOf(initialDays) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     // 曜日チェックボックス用 state (日=0, 月=1, ... 土=6 → Room はその月の曜日番号 1-7)
     val dayOfWeekLabels = listOf("月", "火", "水", "木", "金", "土", "日")
@@ -54,6 +57,32 @@ fun RecurringTaskEditorSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
+        
+        // 日付選択ダイアログ
+        if (showDatePicker) {
+            val datePickerState = rememberDatePickerState(
+                initialSelectedDateMillis = System.currentTimeMillis()
+            )
+            DatePickerDialog(
+                onDismissRequest = { showDatePicker = false },
+                confirmButton = {
+                    TextButton(onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            val local = java.time.Instant.ofEpochMilli(millis)
+                                .atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                            startDate = local.toString()
+                        }
+                        showDatePicker = false
+                    }) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDatePicker = false }) { Text("キャンセル") }
+                }
+            ) {
+                DatePicker(state = datePickerState)
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -75,14 +104,16 @@ fun RecurringTaskEditorSheet(
                 singleLine = true
             )
 
-            OutlinedTextField(
-                value = startDate,
-                onValueChange = { startDate = it },
-                label = { Text("開始日 (yyyy-MM-dd)") },
+            Text("開始日", style = MaterialTheme.typography.labelLarge)
+            OutlinedButton(
+                onClick = { showDatePicker = true },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text(java.time.LocalDate.now().toString()) }
-            )
+                contentPadding = PaddingValues(12.dp)
+            ) {
+                Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(startDate.ifEmpty { "開始日を選択" })
+            }
 
             // パターン選択
             Text("繰り返しルール", style = MaterialTheme.typography.labelLarge)

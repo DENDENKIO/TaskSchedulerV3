@@ -182,9 +182,24 @@ private fun QuickDraftListItem(
                     Text(
                         draft.ocrText!!,
                         fontSize = 11.sp,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // 設定されているタグを表示
+                val listVm: ScheduleListViewModel = viewModel()
+                val allTags by listVm.allTags.collectAsState()
+                val tagNames = remember(draft.tagIds, allTags) {
+                    val ids = draft.tagIds?.split(",")?.filter { it.isNotBlank() }?.map { it.toInt() } ?: emptyList()
+                    allTags.filter { it.id in ids }.map { it.name }
+                }
+                if (tagNames.isNotEmpty()) {
+                    Text(
+                        tagNames.joinToString(", "),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF8B7CF6)
                     )
                 }
             }
