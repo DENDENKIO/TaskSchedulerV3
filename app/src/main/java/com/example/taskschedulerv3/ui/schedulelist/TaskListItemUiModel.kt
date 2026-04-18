@@ -16,5 +16,7 @@ data class TaskListItemUiModel(
     val relatedCount: Int = 0,
     val isRoadmapTask: Boolean = false,
     val activeStageLabel: String? = null,
-    val activeStageColor: Color = Color.Unspecified
+    val activeStageColor: Color = Color.Unspecified,
+    val completedSteps: Int = 0,
+    val totalSteps: Int = 0
 )

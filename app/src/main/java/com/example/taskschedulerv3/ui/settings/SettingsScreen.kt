@@ -100,6 +100,13 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             HorizontalDivider()
 
             SettingsItem(
+                title = "完了した予定",
+                subtitle = "完了した予定の確認・復元",
+                onClick = { navController.navigate(Screen.CompletedTasks.route) }
+            )
+            HorizontalDivider()
+
+            SettingsItem(
                 title = "無期限予定",
                 subtitle = "日付を決めない予定の一覧・編集・削除",
                 onClick = { navController.navigate(Screen.IndefiniteTask.route) }

@@ -30,8 +30,8 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     val filterDateFrom = MutableStateFlow("")
     val filterDateTo = MutableStateFlow("")
 
-    // 表示モード (第3弾)
-    val displayMode = MutableStateFlow(DisplayMode.TODAY)
+    // 表示モード (第3弾) - デフォルトを「すべて」に変更
+    val displayMode = MutableStateFlow(DisplayMode.ALL)
 
     // タグフィルタ (第3弾) — 単一選択
     val selectedTagId = MutableStateFlow<Int?>(null)
@@ -104,13 +104,22 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    /** タグフィルタ関連情報をまとめる Flow */
+    private val tagFilterInfo = combine(
+        selectedTagId,
+        tagFilteredTaskIds,
+        taskTagMap
+    ) { tagId, taggedIds, tagMap ->
+        Triple(tagId, taggedIds, tagMap)
+    }
+
     val tasks: StateFlow<List<Task>> = combine(
         baseTaskFlow,
         searchQuery.debounce(300),
         sortOption,
-        selectedTagId,
-        tagFilteredTaskIds
-    ) { list, query, sort, tagId, taggedIds ->
+        tagFilterInfo
+    ) { list, query, sort, tagInfo ->
+        val (tagId, taggedIds, tagMap) = tagInfo
         var result = list
 
         // 検索
@@ -118,9 +127,9 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
             result = result.filter { it.title.contains(query, ignoreCase = true) }
         }
 
-        // タグフィルタ
+        // タグフィルタ (タグなしタスクは常に含める)
         if (tagId != null && taggedIds != null) {
-            result = result.filter { it.id in taggedIds }
+            result = result.filter { it.id in taggedIds || tagMap[it.id].isNullOrEmpty() }
         }
 
         // ソート
@@ -167,6 +176,7 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         // パフォーマンスのため、一括取得してメモリ内でマップ化
         val allSteps = roadmapDao.getAllStepsSync()
         val stepMap = allSteps.associate { it.id to it.title }
+        val stepsByTask = allSteps.groupBy { it.taskId }
         
         val allChildren = taskDao.getAllChildrenSync()
         val childCountMap = allChildren.groupBy { it.parentTaskId }.mapValues { it.value.size }
@@ -197,6 +207,10 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                 task.progress
             }
 
+            val taskSteps = stepsByTask[task.id] ?: emptyList()
+            val totalSteps = taskSteps.size + 1
+            val completedCount = taskSteps.count { it.isCompleted } + (if (task.activeRoadmapStepId != null || task.isCompleted) 1 else 0)
+
             TaskListItemUiModel(
                 task = task,
                 displayTitle = displayTitle,
@@ -205,7 +219,9 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                 emoji = emoji,
                 isRoadmapTask = task.roadmapEnabled,
                 activeStageLabel = activeLabel,
-                relatedCount = childCountMap[task.id] ?: 0
+                relatedCount = childCountMap[task.id] ?: 0,
+                completedSteps = completedCount,
+                totalSteps = totalSteps
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -232,11 +248,6 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         val current = filterOption.value.scheduleTypes.toMutableSet()
         if (type in current) current.remove(type) else current.add(type)
         filterOption.value = filterOption.value.copy(scheduleTypes = current)
-    }
-    fun togglePriorityFilter(priority: Int) {
-        val current = filterOption.value.priorities.toMutableSet()
-        if (priority in current) current.remove(priority) else current.add(priority)
-        filterOption.value = filterOption.value.copy(priorities = current)
     }
     fun clearFilters() { filterOption.value = FilterOption(); selectedTagId.value = null }
 
@@ -267,7 +278,11 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
             // 現在地が「本体(START)」の場合 -> 最初のステップをアクティブにする
             val firstStep = steps.firstOrNull()
             if (firstStep != null) {
-                db.taskDao().updateActiveRoadmapStep(task.id, firstStep.id, System.currentTimeMillis())
+                db.taskDao().update(task.copy(
+                    activeRoadmapStepId = firstStep.id,
+                    startDate = firstStep.date ?: task.startDate,
+                    updatedAt = System.currentTimeMillis()
+                ))
             } else {
                 repo.setCompleted(task.id, true)
             }
@@ -283,7 +298,11 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             if (nextStep != null) {
-                db.taskDao().updateActiveRoadmapStep(task.id, nextStep.id, System.currentTimeMillis())
+                db.taskDao().update(task.copy(
+                    activeRoadmapStepId = nextStep.id,
+                    startDate = nextStep.date ?: task.startDate,
+                    updatedAt = System.currentTimeMillis()
+                ))
             } else {
                 // 次のステップがない = 全ロードマップ完了
                 repo.setCompleted(task.id, true)

@@ -1,8 +1,12 @@
 package com.example.taskschedulerv3
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+// ... (rest of imports should be maintained)
 import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -41,11 +45,25 @@ import com.example.taskschedulerv3.ui.schedulelist.ScheduleListViewModel
 class MainActivity : ComponentActivity() {
     private val activityUiVm: TaskFlowUiViewModel by viewModels()
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            // Permission granted
+        } else {
+            // Permission denied - maybe show a message
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
 
         NotificationHelper.createChannel(this)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         lifecycleScope.launch {
             try {

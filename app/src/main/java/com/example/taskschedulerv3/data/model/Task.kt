@@ -19,7 +19,7 @@ data class Task(
     val priority: Int = 1,                 // 0=high,1=medium,2=low
     val isCompleted: Boolean = false,
     val notifyEnabled: Boolean = true,
-    val notifyMinutesBefore: Int = 10,
+    val notifyMinutesBefore: Int = 60,
     val isDeleted: Boolean = false,
     val deletedAt: Long? = null,
     val isIndefinite: Boolean = false,     // 無期限登録フラグ

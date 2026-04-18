@@ -36,17 +36,63 @@ class TaskRepository(
     suspend fun setCompleted(id: Int, completed: Boolean) =
         dao.setCompleted(id, completed, System.currentTimeMillis())
 
-    // ロードマップ・親子関係用 (ステップ4)
+    suspend fun revertRoadmapStep(taskId: Int) {
+        val task = dao.getById(taskId) ?: return
+        if (!task.roadmapEnabled) return
+        
+        val steps = roadmapDao.getStepsForTaskSync(taskId)
+        if (steps.isEmpty()) {
+            if (task.isCompleted) dao.setCompleted(taskId, false, System.currentTimeMillis())
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (task.isCompleted) {
+            // 全完了状態から戻す -> 最後のステップを実行中に戻す
+            val lastStep = steps.last()
+            roadmapDao.setStepCompleted(lastStep.id, false, null)
+            
+            val updatedTask = task.copy(
+                isCompleted = false,
+                activeRoadmapStepId = lastStep.id,
+                startDate = lastStep.date ?: task.startDate,
+                updatedAt = now
+            )
+            dao.update(updatedTask)
+        } else {
+            val currentStepId = task.activeRoadmapStepId
+            if (currentStepId == null) {
+                // 開始前(START)なら何もしない
+                return
+            }
+            
+            // 現在のステップを未完了にし、一つ前に戻る
+            roadmapDao.setStepCompleted(currentStepId, false, null)
+            val currentIndex = steps.indexOfFirst { it.id == currentStepId }
+            val prevStep = if (currentIndex > 0) steps[currentIndex - 1] else null
+            val prevStepId = prevStep?.id
+            
+            val updatedTask = task.copy(
+                activeRoadmapStepId = prevStepId,
+                startDate = prevStep?.date ?: task.startDate,
+                updatedAt = now
+            )
+            dao.update(updatedTask)
+        }
+    }
+
+    // ロードマップ・親子関係用
     suspend fun countChildren(parentId: Int): Int = dao.countChildren(parentId)
     
     suspend fun getNextIncompleteStep(taskId: Int) = 
         roadmapDao.getNextIncompleteStep(taskId)
 
     suspend fun calculateRoadmapProgress(taskId: Int): Int {
+        val task = dao.getById(taskId) ?: return 0
         val total = roadmapDao.countAllSteps(taskId) + 1 // +1 はタスク本体(START)
         if (total <= 1) return 0
-        val completed = roadmapDao.countCompletedSteps(taskId)
-        // タスク本体が完了しているとみなすかについては、呼び出し元で判定
-        return (completed * 100) / total
+        val completedSteps = roadmapDao.countCompletedSteps(taskId)
+        val completedTotal = completedSteps + (if (task.activeRoadmapStepId != null || task.isCompleted) 1 else 0)
+        return (completedTotal * 100) / total
     }
 }

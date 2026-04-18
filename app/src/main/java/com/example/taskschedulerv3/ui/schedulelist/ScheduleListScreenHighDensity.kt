@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,13 +51,11 @@ fun ScheduleListScreenHighDensity(
     var showSortMenu by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     val searchQuery by vm.searchQuery.collectAsState()
-    var filteredPriority by remember { mutableStateOf<Int?>(null) }
 
     val today = LocalDate.now()
 
-    val finalTasks = remember(uiTasks, filteredPriority) {
-        if (filteredPriority == null) uiTasks.map { it.task }
-        else uiTasks.map { it.task }.filter { it.priority == filteredPriority }
+    val finalTasks = remember(uiTasks) {
+        uiTasks.map { it.task }
     }
 
     val grouped = remember(uiTasks, displayMode) {
@@ -99,6 +98,9 @@ fun ScheduleListScreenHighDensity(
                 }
             },
             actions = {
+                IconButton(onClick = { navController.navigate(Screen.CompletedTasks.route) }) {
+                    Icon(Icons.Default.History, "完了した予定")
+                }
                 IconButton(onClick = { showSearch = !showSearch; if (!showSearch) vm.setSearchQuery("") }) {
                     Icon(Icons.Default.Search, null)
                 }
@@ -124,6 +126,11 @@ fun ScheduleListScreenHighDensity(
                                 onClick = { vm.setSortOption(opt); showSortMenu = false }
                             )
                         }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("完了した予定を表示", fontSize = 13.sp) },
+                            onClick = { navController.navigate(Screen.CompletedTasks.route); showSortMenu = false }
+                        )
                     }
                 }
             }
@@ -141,34 +148,11 @@ fun ScheduleListScreenHighDensity(
             modifier = Modifier.height(44.dp)
         ) {
             Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                FilterChip(
-                    selected = selectedTagId == null,
-                    onClick = { vm.setTagFilter(null) },
-                    label = { Text("全タグ", fontSize = 11.sp) },
-                    modifier = Modifier.padding(end = 4.dp)
-                )
                 allTags.forEach { tag ->
                     FilterChip(
                         selected = selectedTagId == tag.id,
                         onClick = { vm.setTagFilter(if (selectedTagId == tag.id) null else tag.id) },
                         label = { Text(tag.name, fontSize = 11.sp) },
-                        modifier = Modifier.padding(end = 4.dp)
-                    )
-                }
-                
-                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 8.dp))
-
-                FilterChip(
-                    selected = filteredPriority == null,
-                    onClick = { filteredPriority = null },
-                    label = { Text("全優先度", fontSize = 11.sp) },
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                listOf(0 to "🔴 高", 1 to "🟡 中", 2 to "🟢 低").forEach { (pri, label) ->
-                    FilterChip(
-                        selected = filteredPriority == pri,
-                        onClick = { filteredPriority = if (filteredPriority == pri) null else pri },
-                        label = { Text(label, fontSize = 11.sp) },
                         modifier = Modifier.padding(end = 4.dp)
                     )
                 }

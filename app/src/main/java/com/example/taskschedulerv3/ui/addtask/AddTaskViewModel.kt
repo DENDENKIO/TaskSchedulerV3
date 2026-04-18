@@ -36,7 +36,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val recurrenceEndDate = MutableStateFlow("")
     val priority = MutableStateFlow(1)
     val notifyEnabled = MutableStateFlow(true)
-    val notifyMinutesBefore = MutableStateFlow(10)
+    val notifyMinutesBefore = MutableStateFlow(60)
     val isIndefinite = MutableStateFlow(false)  // 無期限登録フラグ
     val parentTaskId = MutableStateFlow<Int?>(null) // 親タスクID (ステップ5)
     val roadmapEnabled = MutableStateFlow(false) // ロードマップ有効化 (ステップ6)
@@ -128,7 +128,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         recurrenceEndDate.value = ""
         priority.value = 1
         notifyEnabled.value = true
-        notifyMinutesBefore.value = 10
+        notifyMinutesBefore.value = 60
         isIndefinite.value = false
         parentTaskId.value = null // ステップ5
         roadmapEnabled.value = false // ステップ6

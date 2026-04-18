@@ -44,7 +44,7 @@ object AlarmScheduler {
         return when (task.scheduleType) {
             ScheduleType.NORMAL, ScheduleType.PERIOD -> {
                 val date = DateUtils.parse(task.startDate)
-                val time = task.startTime?.let { parseTime(it) } ?: LocalTime.of(9, 0)
+                val time = task.startTime?.let { parseTime(it) } ?: LocalTime.MIDNIGHT
                 val triggerTime = LocalDateTime.of(date, time)
                     .minusMinutes(task.notifyMinutesBefore.toLong())
                 if (triggerTime.isAfter(now)) toMillis(triggerTime) else null

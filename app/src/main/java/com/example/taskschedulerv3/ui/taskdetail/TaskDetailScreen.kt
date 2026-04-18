@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material3.*
@@ -183,11 +184,19 @@ fun TaskDetailScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("ロードマップ", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            TextButton(onClick = {
-                                navController.navigate(Screen.RoadmapEdit.createRoute(taskId))
-                            }) {
-                                Text("編集")
-                                Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
+                            Row {
+                                if (t.isCompleted || t.activeRoadmapStepId != null) {
+                                    TextButton(onClick = { vm.revertRoadmapStep(t) }) {
+                                        Text("戻す", color = MaterialTheme.colorScheme.error)
+                                        Icon(Icons.Default.Undo, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                                TextButton(onClick = {
+                                    navController.navigate(Screen.RoadmapEdit.createRoute(taskId))
+                                }) {
+                                    Text("編集")
+                                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
+                                }
                             }
                         }
                         Spacer(Modifier.height(8.dp))

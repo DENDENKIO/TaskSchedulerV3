@@ -163,6 +163,33 @@ fun StepEditDialog(
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var date by remember { mutableStateOf(initialDate) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = if (date.isNotEmpty()) {
+                try {
+                    java.time.LocalDate.parse(date).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                } catch (_: Exception) { System.currentTimeMillis() }
+            } else System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val local = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                        date = local.toString()
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("キャンセル") }
+            }
+        ) { DatePicker(state = datePickerState) }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -172,12 +199,23 @@ fun StepEditDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("名称") }
+                    label = { Text("名称") },
+                    modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = date,
-                    onValueChange = { date = it },
-                    label = { Text("日付 (任意)") }
+                    onValueChange = { /* 読み取り専用にしたいので何もしない */ },
+                    label = { Text("期限 (任意)") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDatePicker = true },
+                    readOnly = true,
+                    enabled = true,
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.CalendarMonth, "日付選択")
+                        }
+                    }
                 )
             }
         },

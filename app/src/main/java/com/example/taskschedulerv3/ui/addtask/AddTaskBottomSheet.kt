@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -15,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.ui.components.TagSelector
@@ -44,6 +46,8 @@ fun AddTaskBottomSheet(
     val parentTask by vm.parentTask.collectAsState() // ステップ5
     val allTasks by vm.allTasks.collectAsState()     // ステップ5
     val roadmapEnabled by vm.roadmapEnabled.collectAsState() // ステップ6
+    val notifyEnabled by vm.notifyEnabled.collectAsState()
+    val notifyMinutesBefore by vm.notifyMinutesBefore.collectAsState()
 
     // OCR ViewModel
     val photoVm: TaskPhotoViewModel = viewModel()
@@ -247,6 +251,69 @@ fun AddTaskBottomSheet(
                         Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(startTime.ifEmpty { "時刻を選択" })
+                    }
+                }
+
+                // 通知設定セクション
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("通知を有効にする", style = MaterialTheme.typography.bodyLarge)
+                        Switch(checked = notifyEnabled, onCheckedChange = { vm.notifyEnabled.value = it })
+                    }
+
+                    if (notifyEnabled) {
+                        val presets = listOf(
+                            0 to "ちょうど",
+                            10 to "10分前",
+                            60 to "1時間前",
+                            1440 to "1日前"
+                        )
+                        // 状態を直接計算して一貫性を保つ
+                        val isPreset = presets.any { it.first == notifyMinutesBefore }
+                        var forceCustom by remember { mutableStateOf(false) }
+                        val currentlyCustom = forceCustom || !isPreset
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            presets.forEach { (mins, label) ->
+                                FilterChip(
+                                    selected = !currentlyCustom && notifyMinutesBefore == mins,
+                                    onClick = {
+                                        vm.notifyMinutesBefore.value = mins
+                                        forceCustom = false
+                                    },
+                                    label = { Text(label, fontSize = 11.sp) }
+                                )
+                            }
+                            FilterChip(
+                                selected = currentlyCustom,
+                                onClick = { forceCustom = true },
+                                label = { Text("カスタム", fontSize = 11.sp) }
+                            )
+                        }
+
+                        if (currentlyCustom) {
+                            OutlinedTextField(
+                                value = if (notifyMinutesBefore == 0 && forceCustom) "" else notifyMinutesBefore.toString(),
+                                onValueChange = {
+                                    val newVal = it.toIntOrNull() ?: 0
+                                    vm.notifyMinutesBefore.value = newVal
+                                },
+                                label = { Text("通知タイミング（分前）") },
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                )
+                            )
+                        }
                     }
                 }
             }

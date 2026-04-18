@@ -45,6 +45,7 @@ sealed class Screen(val route: String) {
     object RoadmapEdit : Screen("roadmap_edit/{taskId}") {
         fun createRoute(taskId: Int) = "roadmap_edit/$taskId"
     }
+    object CompletedTasks : Screen("completed_tasks")
 
 }
 
@@ -113,6 +114,9 @@ fun AppNavGraph(
         composable("roadmap_edit/{taskId}") { backStack ->
             val taskId = backStack.arguments?.getString("taskId")?.toIntOrNull() ?: return@composable
             com.example.taskschedulerv3.ui.roadmap.RoadmapEditScreen(navController = navController, taskId = taskId)
+        }
+        composable(Screen.CompletedTasks.route) {
+            com.example.taskschedulerv3.ui.completed.CompletedTasksScreen(navController = navController)
         }
     }
 }

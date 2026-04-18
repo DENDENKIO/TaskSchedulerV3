@@ -59,18 +59,30 @@ fun TaskRowItemHighDensity(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 小型円形進捗
-                    Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onComplete() }, 
+                        contentAlignment = Alignment.Center
+                    ) {
                         CircularProgressIndicator(
                             progress = { (uiModel.progressPercent / 100f).coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxSize(),
-                            strokeWidth = 3.dp,
+                            strokeWidth = 2.dp,
                             color = if (task.isCompleted) Color.Gray else MaterialTheme.colorScheme.primary,
                             trackColor = MaterialTheme.colorScheme.surfaceVariant
                         )
-                        IconButton(onClick = onComplete, modifier = Modifier.size(24.dp)) {
-                            if (task.isCompleted) {
-                                Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            }
+                        
+                        if (task.roadmapEnabled && !task.isCompleted) {
+                            Text(
+                                text = "${uiModel.completedSteps}/${uiModel.totalSteps}",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else if (task.isCompleted) {
+                            Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         }
                     }
 

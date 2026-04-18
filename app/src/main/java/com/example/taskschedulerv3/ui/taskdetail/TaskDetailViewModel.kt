@@ -80,6 +80,10 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun revertRoadmapStep(task: Task) = viewModelScope.launch {
+        repo.revertRoadmapStep(task.id)
+    }
+
     private suspend fun processRoadmapCompletion(task: Task) {
         val roadmapStepDao = db.roadmapStepDao()
         val steps = roadmapStepDao.getStepsForTaskSync(task.id)
@@ -93,7 +97,11 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
         if (currentStepId == null) {
             val firstStep = steps.firstOrNull()
             if (firstStep != null) {
-                db.taskDao().updateActiveRoadmapStep(task.id, firstStep.id, System.currentTimeMillis())
+                db.taskDao().update(task.copy(
+                    activeRoadmapStepId = firstStep.id,
+                    startDate = firstStep.date ?: task.startDate,
+                    updatedAt = System.currentTimeMillis()
+                ))
             } else {
                 repo.setCompleted(task.id, true)
             }
@@ -107,7 +115,11 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             if (nextStep != null) {
-                db.taskDao().updateActiveRoadmapStep(task.id, nextStep.id, System.currentTimeMillis())
+                db.taskDao().update(task.copy(
+                    activeRoadmapStepId = nextStep.id,
+                    startDate = nextStep.date ?: task.startDate,
+                    updatedAt = System.currentTimeMillis()
+                ))
             } else {
                 repo.setCompleted(task.id, true)
             }
