@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.taskschedulerv3.data.db.AppDatabase
@@ -145,34 +146,29 @@ fun TaskSchedulerApp() {
     val currentRoute = currentBackStack?.destination?.route
 
     fun routeMatches(current: String?, item: String): Boolean {
-        if (current == null) return false
-        if (item == Screen.ScheduleListV2.route && current.startsWith("schedule_list")) return true
         return current == item
     }
 
     Scaffold(
         bottomBar = {
-            val showBottomBar = bottomItems.any { routeMatches(currentRoute, it.route) }
-            if (showBottomBar) {
-                NavigationBar {
-                    bottomItems.forEach { item ->
-                        NavigationBarItem(
-                            selected = routeMatches(currentRoute, item.route),
-                            onClick = {
-                                if (!routeMatches(currentRoute, item.route)) {
-                                    navController.navigate(item.route) {
-                                        popUpTo(Screen.ScheduleListV2.route) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
+            NavigationBar {
+                bottomItems.forEach { item ->
+                    NavigationBarItem(
+                        selected = routeMatches(currentRoute, item.route),
+                        onClick = {
+                            if (currentRoute != item.route) {
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
                                     }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                            },
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) }
-                        )
-                    }
+                            }
+                        },
+                        icon = { Icon(item.icon, contentDescription = item.label) },
+                        label = { Text(item.label) }
+                    )
                 }
             }
         },

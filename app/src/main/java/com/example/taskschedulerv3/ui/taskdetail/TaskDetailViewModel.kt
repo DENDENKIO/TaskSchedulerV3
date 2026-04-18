@@ -28,34 +28,28 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // 親タスク (ステップ5)
-    val parentTask: StateFlow<Task?> = task.flatMapLatest { t ->
-        val pId = t?.parentTaskId
-        if (pId != null) {
-            flow { emit(repo.getById(pId)) }
-        } else {
-            flowOf<Task?>(null)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    // 子タスク一覧 (ステップ5)
-    val childrenTasks: StateFlow<List<Task>> = _taskId
-        .filterNotNull()
-        .flatMapLatest { id -> db.taskDao().getChildrenTasks(id) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // 既存の関連タスク (互換維持)
-    val relatedTaskIds: StateFlow<List<Int>> = _taskId
-        .filterNotNull()
-        .flatMapLatest { id -> relationRepo.getRelatedTaskIds(id) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // All tasks to resolve related ids → Task objects
+    // 全タスク Flow
     private val allTasks: StateFlow<List<Task>> = repo.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val relatedTasks: StateFlow<List<Task>> = combine(relatedTaskIds, allTasks) { ids, tasks ->
-        tasks.filter { it.id in ids }
+    // 関連タスク (TaskRelation + Legacy Parent/Child) の基盤データ
+    private val relatedTaskIdsFromTable: Flow<List<Int>> = _taskId
+        .filterNotNull()
+        .flatMapLatest { id -> relationRepo.getRelatedTaskIds(id) }
+
+    val relatedTasks: StateFlow<List<Task>> = combine(
+        task,
+        allTasks,
+        relatedTaskIdsFromTable
+    ) { currentTask, all, tableIds ->
+        if (currentTask == null) return@combine emptyList<Task>()
+        
+        val id = currentTask.id
+        val legacyParentId = currentTask.parentTaskId
+        val legacyChildrenIds = all.filter { it.parentTaskId == id }.map { it.id }
+        
+        val combinedIds = (tableIds + listOfNotNull(legacyParentId) + legacyChildrenIds).toSet()
+        all.filter { it.id in combinedIds && it.id != id }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ロードマップステップ一覧 (ステップ6)

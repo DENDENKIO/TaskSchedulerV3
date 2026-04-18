@@ -57,6 +57,7 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
+    implementation(libs.androidx.exifinterface)
     
     // OCR: ML Kit Text Recognition Japanese
     implementation("com.google.mlkit:text-recognition-japanese:16.0.1")

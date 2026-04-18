@@ -55,11 +55,11 @@ fun AddTaskBottomSheet(
     val selectedTagIds by vm.selectedTagIds.collectAsState()
     val allTags by vm.allTags.collectAsState()
     val saveSuccess by vm.saveSuccess.collectAsState()
-    val parentTask by vm.parentTask.collectAsState()
-    val allTasks by vm.allTasks.collectAsState()
     val roadmapEnabled by vm.roadmapEnabled.collectAsState()
     val notifyEnabled by vm.notifyEnabled.collectAsState()
     val notifyMinutesBefore by vm.notifyMinutesBefore.collectAsState()
+    val relatedTasks by vm.relatedTasks.collectAsState()
+    val relatedTaskIds by vm.relatedTaskIds.collectAsState()
 
     // 繰り返し・期間用追加
     val scheduleType by vm.scheduleType.collectAsState()
@@ -130,7 +130,7 @@ fun AddTaskBottomSheet(
     // DatePicker/TimePicker state
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
-    var showParentSelector by remember { mutableStateOf(false) } // ステップ5
+    var showRelatedSelector by remember { mutableStateOf(false) }
 
     // EndDate Picker (Period or Recurrence End)
     var showEndDatePicker by remember { mutableStateOf(false) }
@@ -205,33 +205,30 @@ fun AddTaskBottomSheet(
         )
     }
 
-    // 親予定選択ダイアログ (ステップ5)
-    if (showParentSelector) {
+    // 関連予定選択ダイアログ
+    if (showRelatedSelector) {
         AlertDialog(
-            onDismissRequest = { showParentSelector = false },
-            title = { Text("親予定を選択") },
+            onDismissRequest = { showRelatedSelector = false },
+            title = { Text("関連予定を選択") },
             text = {
-                val availableTasks = allTasks.filter { it.id != taskId && !it.isCompleted }
+                val availableTasks = vm.allTasks.collectAsState().value.filter { it.id != taskId && !it.isCompleted }
                 if (availableTasks.isEmpty()) {
                     Text("選択可能な予定がありません")
                 } else {
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                        item {
-                            ListItem(
-                                headlineContent = { Text("指定なし") },
-                                modifier = Modifier.clickable {
-                                    vm.parentTaskId.value = null
-                                    showParentSelector = false
-                                }
-                            )
-                        }
                         items(availableTasks) { t ->
+                            val isSelected = t.id in relatedTaskIds
                             ListItem(
                                 headlineContent = { Text(t.title) },
                                 supportingContent = { Text(t.startDate) },
+                                trailingContent = {
+                                    if (isSelected) {
+                                        Icon(Icons.Default.Done, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
                                 modifier = Modifier.clickable {
-                                    vm.parentTaskId.value = t.id
-                                    showParentSelector = false
+                                    if (isSelected) vm.removeRelatedTask(t.id)
+                                    else vm.addRelatedTask(t.id)
                                 }
                             )
                         }
@@ -239,7 +236,7 @@ fun AddTaskBottomSheet(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showParentSelector = false }) { Text("閉じる") }
+                TextButton(onClick = { showRelatedSelector = false }) { Text("完了") }
             }
         )
     }
@@ -568,17 +565,40 @@ fun AddTaskBottomSheet(
                 )
             }
 
-            // 親予定選択部 (ステップ5)
-            Column {
-                Text("親予定", style = MaterialTheme.typography.labelLarge)
-                OutlinedButton(
-                    onClick = { showParentSelector = true },
+            // 関連予定セクション
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(12.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(20.dp).rotate(if (showParentSelector) 90f else 0f))
-                    Spacer(Modifier.width(8.dp))
-                    Text(parentTask?.title ?: "指定なし")
+                    Text("関連予定", style = MaterialTheme.typography.labelLarge)
+                    TextButton(onClick = { showRelatedSelector = true }) {
+                        Text("追加 / 編集")
+                    }
+                }
+                
+                if (relatedTasks.isEmpty()) {
+                    Text("関連する予定はありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        relatedTasks.forEach { t ->
+                            AssistChip(
+                                onClick = { /* Navigate to detail? Maybe not helpful here */ },
+                                label = { Text(t.title, maxLines = 1) },
+                                trailingIcon = {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "削除",
+                                        modifier = Modifier.size(16.dp).clickable { vm.removeRelatedTask(t.id) }
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
             }
 

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <external-path name="my_images" path="Android/data/com.example.taskschedulerv3/files/Pictures" />
-    <cache-path name="my_cache_images" path="images" />
-    <files-path name="my_files_images" path="photos" />
+    <external-path name="my_images" path="Pictures/TaskSchedulerV3" />
+    <cache-path name="my_cache_images" path="." />
+    <files-path name="my_files_images" path="." />
 </paths>

@@ -43,8 +43,6 @@ fun TaskDetailScreen(
     val task by vm.task.collectAsState()
     val relatedTasks by vm.relatedTasks.collectAsState()
     val photos by vm.photos.collectAsState()
-    val parentTask by vm.parentTask.collectAsState()   // ステップ5
-    val childrenTasks by vm.childrenTasks.collectAsState() // ステップ5
     val roadmapSteps by vm.roadmapSteps.collectAsState() // ステップ6
 
     LaunchedEffect(taskId) { vm.loadTask(taskId) }
@@ -220,35 +218,6 @@ fun TaskDetailScreen(
                     }
                 }
 
-                // 親予定セクション (ステップ5)
-                parentTask?.let { parent ->
-                    item {
-                        HorizontalDivider()
-                        Spacer(Modifier.height(4.dp))
-                        Text("親予定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
-                        RelatedTaskRow(
-                            task = parent,
-                            onClick = { navController.navigate(Screen.TaskDetail.createRoute(parent.id)) }
-                        )
-                    }
-                }
-
-                // 子予定セクション (ステップ5)
-                if (childrenTasks.isNotEmpty()) {
-                    item {
-                        HorizontalDivider()
-                        Spacer(Modifier.height(4.dp))
-                        Text("子予定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    items(childrenTasks) { child ->
-                        RelatedTaskRow(
-                            task = child,
-                            onClick = { navController.navigate(Screen.TaskDetail.createRoute(child.id)) }
-                        )
-                    }
-                }
 
                 if (relatedTasks.isNotEmpty()) {
                     item {
