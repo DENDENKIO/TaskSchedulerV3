@@ -40,8 +40,9 @@ object RecurrenceCalculator {
             }
             RecurrencePattern.YEARLY -> date.monthValue == start.monthValue && date.dayOfMonth == start.dayOfMonth
             RecurrencePattern.EVERY_N_DAYS -> {
-                val n = task.recurrenceDays?.trim()?.toLongOrNull() ?: 1L
-                ChronoUnit.DAYS.between(start, date) % n == 0L
+                val intervals = task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toLongOrNull() } ?: listOf(1L)
+                val daysBetween = ChronoUnit.DAYS.between(start, date)
+                intervals.any { it > 0 && daysBetween % it == 0L }
             }
             RecurrencePattern.WEEKLY_MULTI -> {
                 val days = task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() } ?: emptyList()

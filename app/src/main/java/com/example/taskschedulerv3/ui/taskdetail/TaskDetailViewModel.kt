@@ -24,7 +24,7 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
     val task: StateFlow<Task?> = _taskId
         .filterNotNull()
         .flatMapLatest { id ->
-            flow { emit(repo.getById(id)) }
+            repo.getByIdFlow(id)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -82,6 +82,7 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
 
     fun revertRoadmapStep(task: Task) = viewModelScope.launch {
         repo.revertRoadmapStep(task.id)
+        repo.syncTaskProgress(task.id)
     }
 
     private suspend fun processRoadmapCompletion(task: Task) {
@@ -102,8 +103,10 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
                     startDate = firstStep.date ?: task.startDate,
                     updatedAt = System.currentTimeMillis()
                 ))
+                repo.syncTaskProgress(task.id)
             } else {
                 repo.setCompleted(task.id, true)
+                repo.syncTaskProgress(task.id)
             }
         } else {
             roadmapStepDao.setStepCompleted(currentStepId, true, System.currentTimeMillis())
@@ -120,8 +123,10 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
                     startDate = nextStep.date ?: task.startDate,
                     updatedAt = System.currentTimeMillis()
                 ))
+                repo.syncTaskProgress(task.id)
             } else {
                 repo.setCompleted(task.id, true)
+                repo.syncTaskProgress(task.id)
             }
         }
     }

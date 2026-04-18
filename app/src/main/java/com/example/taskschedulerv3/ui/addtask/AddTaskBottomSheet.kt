@@ -27,11 +27,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import java.time.LocalDate
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import com.example.taskschedulerv3.data.model.RecurrencePattern
+import androidx.compose.foundation.background
 
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddTaskBottomSheet(
     taskId: Int? = null,
@@ -54,6 +60,13 @@ fun AddTaskBottomSheet(
     val roadmapEnabled by vm.roadmapEnabled.collectAsState()
     val notifyEnabled by vm.notifyEnabled.collectAsState()
     val notifyMinutesBefore by vm.notifyMinutesBefore.collectAsState()
+
+    // 繰り返し・期間用追加
+    val scheduleType by vm.scheduleType.collectAsState()
+    val recurrencePattern by vm.recurrencePattern.collectAsState()
+    val recurrenceDays by vm.recurrenceDays.collectAsState()
+    val endDate by vm.endDate.collectAsState()
+    val recurrenceEndDate by vm.recurrenceEndDate.collectAsState()
 
     // OCR ViewModel
     val photoVm: TaskPhotoViewModel = viewModel()
@@ -119,6 +132,10 @@ fun AddTaskBottomSheet(
     var showTimePicker by remember { mutableStateOf(false) }
     var showParentSelector by remember { mutableStateOf(false) } // ステップ5
 
+    // EndDate Picker (Period or Recurrence End)
+    var showEndDatePicker by remember { mutableStateOf(false) }
+    var isPickingRecurrenceEnd by remember { mutableStateOf(false) }
+
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(
             initialSelectedDateMillis = System.currentTimeMillis()
@@ -133,6 +150,29 @@ fun AddTaskBottomSheet(
                         vm.startDate.value = local.toString()
                     }
                     showDatePicker = false
+                }) { Text("OK") }
+            }
+        ) { DatePicker(state = datePickerState) }
+    }
+
+    if (showEndDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val local = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                        if (isPickingRecurrenceEnd) {
+                            vm.recurrenceEndDate.value = local.toString()
+                        } else {
+                            vm.endDate.value = local.toString()
+                        }
+                    }
+                    showEndDatePicker = false
                 }) { Text("OK") }
             }
         ) { DatePicker(state = datePickerState) }
@@ -275,17 +315,156 @@ fun AddTaskBottomSheet(
                 minLines = 2
             )
 
-            // 無期限トグル
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-            ) {
-                Text("無期限（期限を指定しない）", style = MaterialTheme.typography.bodyLarge)
-                Switch(
-                    checked = isIndefinite,
-                    onCheckedChange = { vm.isIndefinite.value = it }
-                )
+            // スケジュールタイプ選択 (通常/繰り返し/期間)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("予定の種類", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ScheduleType.values().filter { it != ScheduleType.ROADMAP }.forEach { type ->
+                        val label = when(type) {
+                            ScheduleType.NORMAL -> "通常"
+                            ScheduleType.RECURRING -> "繰り返し"
+                            ScheduleType.PERIOD -> "期間"
+                            else -> "" // ROADMAP is filtered out
+                        }
+                        FilterChip(
+                            selected = scheduleType == type,
+                            onClick = { 
+                                vm.scheduleType.value = type
+                                if (type == ScheduleType.RECURRING && recurrencePattern == null) {
+                                    vm.recurrencePattern.value = RecurrencePattern.DAILY
+                                }
+                            },
+                            label = { 
+                                Text(
+                                    label, 
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                ) 
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            if (scheduleType == ScheduleType.RECURRING) {
+                // 繰り返し設定セクション
+                Column(
+                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text("繰り返し設定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    
+                    // パターン選択
+                    val patterns: List<Pair<RecurrencePattern, String>> = listOf(
+                        RecurrencePattern.DAILY to "毎日",
+                        RecurrencePattern.EVERY_N_DAYS to "N日ごと",
+                        RecurrencePattern.WEEKLY_MULTI to "曜日指定",
+                        RecurrencePattern.MONTHLY_DATES to "日付指定"
+                    )
+                    
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        patterns.forEach { (p, label) ->
+                            FilterChip(
+                                selected = recurrencePattern == p,
+                                onClick = { vm.recurrencePattern.value = p },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+
+                    when (recurrencePattern) {
+                        RecurrencePattern.EVERY_N_DAYS -> {
+                            OutlinedTextField(
+                                value = recurrenceDays,
+                                onValueChange = { vm.recurrenceDays.value = it },
+                                label = { Text("間隔（例: 3, 5）") },
+                                supportingText = { Text("数字をカンマ区切りで入力してください") },
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                            )
+                        }
+                        RecurrencePattern.WEEKLY_MULTI -> {
+                            val weekDays = listOf("月", "火", "水", "木", "金", "土", "日")
+                            val selectedDays = recurrenceDays.split(",").filter { it.isNotBlank() }.toSet()
+                            
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                maxItemsInEachRow = 4
+                            ) {
+                                weekDays.forEachIndexed { index, day ->
+                                    val dayId = (index + 1).toString()
+                                    FilterChip(
+                                        selected = dayId in selectedDays,
+                                        onClick = { vm.toggleWeeklyDay(index + 1) },
+                                        label = { Text(day) }
+                                    )
+                                }
+                            }
+                        }
+                        RecurrencePattern.MONTHLY_DATES -> {
+                            val selectedDates = recurrenceDays.split(",").filter { it.isNotBlank() }.toSet()
+                            Text("日付を選択（複数可）", style = MaterialTheme.typography.labelSmall)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                maxItemsInEachRow = 7
+                            ) {
+                                (1..31).forEach { date ->
+                                    val dateId = date.toString()
+                                    FilterChip(
+                                        selected = dateId in selectedDates,
+                                        onClick = { vm.toggleMonthlyDate(date) },
+                                        label = { Text(dateId, fontSize = 10.sp) },
+                                        modifier = Modifier.size(width = 38.dp, height = 32.dp)
+                                    )
+                                }
+                            }
+                        }
+                        else -> { /* DAILY etc */ }
+                    }
+
+                    // 終了期限（任意）
+                    OutlinedButton(
+                        onClick = { 
+                            isPickingRecurrenceEnd = true
+                            showEndDatePicker = true 
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (recurrenceEndDate.isEmpty()) "終了期限を設定（任意）" else "終了期限: $recurrenceEndDate")
+                    }
+                }
+            } else if (scheduleType == ScheduleType.PERIOD) {
+                // 期間予定用終了日
+                OutlinedButton(
+                    onClick = { 
+                        isPickingRecurrenceEnd = false
+                        showEndDatePicker = true 
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (endDate.isEmpty()) "終了日を選択" else "終了日: $endDate")
+                }
+            }
+
+            // 無期限トグル (通常予定または期間予定のときのみ表示。繰り返しには馴染まない)
+            if (scheduleType != ScheduleType.RECURRING) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Text("無期限（期限を指定しない）", style = MaterialTheme.typography.bodyLarge)
+                    Switch(
+                        checked = isIndefinite,
+                        onCheckedChange = { vm.isIndefinite.value = it }
+                    )
+                }
             }
 
             if (!isIndefinite) {

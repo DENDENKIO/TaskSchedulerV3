@@ -170,9 +170,13 @@ fun TaskDetailScreen(
                             Text("ロードマップ", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Row {
                                 if (t.isCompleted || t.activeRoadmapStepId != null) {
-                                    TextButton(onClick = { vm.revertRoadmapStep(t) }) {
+                                    TextButton(
+                                        onClick = { vm.revertRoadmapStep(t) },
+                                        // 連打防止の検討：短時間の間に何度も押せないようにする等の配慮も可能
+                                    ) {
                                         Text("戻す", color = MaterialTheme.colorScheme.error)
-                                        Icon(Icons.Default.Undo, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(Icons.Default.Undo, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
                                     }
                                 }
                                 TextButton(onClick = {

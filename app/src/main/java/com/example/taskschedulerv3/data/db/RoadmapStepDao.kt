@@ -12,8 +12,17 @@ interface RoadmapStepDao {
     @Update
     suspend fun update(step: RoadmapStep)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(steps: List<RoadmapStep>)
+
+    @Update
+    suspend fun updateAll(steps: List<RoadmapStep>)
+
     @Delete
     suspend fun delete(step: RoadmapStep)
+
+    @Query("DELETE FROM roadmap_steps WHERE id IN (:ids)")
+    suspend fun deleteStepsByIds(ids: List<Int>)
 
     @Query("SELECT * FROM roadmap_steps WHERE taskId = :taskId ORDER BY sortOrder ASC")
     fun getStepsForTask(taskId: Int): Flow<List<RoadmapStep>>

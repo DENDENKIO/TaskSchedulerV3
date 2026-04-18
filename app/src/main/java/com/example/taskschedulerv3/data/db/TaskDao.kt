@@ -24,6 +24,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id")
     suspend fun getById(id: Int): Task?
 
+    @Query("SELECT * FROM tasks WHERE id = :id")
+    fun getByIdFlow(id: Int): Flow<Task?>
+
     @Query("SELECT * FROM tasks WHERE (title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%') AND isDeleted = 0")
     fun searchByTitle(query: String): Flow<List<Task>>
 
@@ -72,4 +75,7 @@ interface TaskDao {
 
     @Query("UPDATE tasks SET activeRoadmapStepId = :stepId, updatedAt = :updatedAt WHERE id = :taskId")
     suspend fun updateActiveRoadmapStep(taskId: Int, stepId: Int?, updatedAt: Long)
+
+    @Query("UPDATE tasks SET progress = :progress, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateProgress(id: Int, progress: Int, updatedAt: Long)
 }

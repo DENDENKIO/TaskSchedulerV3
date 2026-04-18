@@ -172,6 +172,20 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         _existingPhotos.value = _existingPhotos.value - photo
     }
 
+    fun toggleWeeklyDay(day: Int) {
+        val current = recurrenceDays.value.split(",").filter { it.isNotBlank() }.toMutableSet()
+        val s = day.toString()
+        if (s in current) current.remove(s) else current.add(s)
+        recurrenceDays.value = current.sorted().joinToString(",")
+    }
+
+    fun toggleMonthlyDate(date: Int) {
+        val current = recurrenceDays.value.split(",").filter { it.isNotBlank() }.toMutableSet()
+        val s = date.toString()
+        if (s in current) current.remove(s) else current.add(s)
+        recurrenceDays.value = current.sortedBy { it.toInt() }.joinToString(",")
+    }
+
     fun applyOcrToTitle(text: String) {
         title.value = text.trim()
     }

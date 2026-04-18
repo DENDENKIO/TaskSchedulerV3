@@ -179,17 +179,15 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                 "$emoji ${task.title}"
             }
 
+            val taskSteps = stepsByTask[task.id] ?: emptyList()
+            val totalSteps = taskSteps.size + 1 // START (+1)
+            val completedCount = taskSteps.count { it.isCompleted } + (if (task.activeRoadmapStepId != null || task.isCompleted) 1 else 0)
+            
             val progress = if (task.roadmapEnabled) {
-                val total = allSteps.count { it.taskId == task.id } + 1
-                val completed = allSteps.count { it.taskId == task.id && it.isCompleted }
-                (completed * 100) / total
+                if (totalSteps <= 1) 0 else (completedCount * 100) / totalSteps
             } else {
                 task.progress
             }
-
-            val taskSteps = stepsByTask[task.id] ?: emptyList()
-            val totalSteps = taskSteps.size + 1
-            val completedCount = taskSteps.count { it.isCompleted } + (if (task.activeRoadmapStepId != null || task.isCompleted) 1 else 0)
 
             TaskListItemUiModel(
                 task = task,
@@ -263,8 +261,10 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                     startDate = firstStep.date ?: task.startDate,
                     updatedAt = System.currentTimeMillis()
                 ))
+                repo.syncTaskProgress(task.id)
             } else {
                 repo.setCompleted(task.id, true)
+                repo.syncTaskProgress(task.id)
             }
         } else {
             // 現在地が「ステップ」の場合 -> そのステップを完了し、次へ
@@ -283,9 +283,11 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                     startDate = nextStep.date ?: task.startDate,
                     updatedAt = System.currentTimeMillis()
                 ))
+                repo.syncTaskProgress(task.id)
             } else {
                 // 次のステップがない = 全ロードマップ完了
                 repo.setCompleted(task.id, true)
+                repo.syncTaskProgress(task.id)
             }
         }
     }

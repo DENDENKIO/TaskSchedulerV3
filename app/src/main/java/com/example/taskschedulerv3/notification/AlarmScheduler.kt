@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.example.taskschedulerv3.data.model.RoadmapStep
 import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.util.DateUtils
@@ -103,6 +104,59 @@ object AlarmScheduler {
         val intent = Intent(context, AlarmReceiver::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
             context, taskId, intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        pendingIntent?.let { alarmManager.cancel(it) }
+    }
+
+    /** ロードマップステップ用のスケジュール (詳細仕様書 13.3 準拠) */
+    fun scheduleForStep(context: Context, task: Task, step: RoadmapStep) {
+        val dateStr = step.date ?: return
+        val now = LocalDateTime.now()
+        val date = DateUtils.parse(dateStr)
+        val time = task.startTime?.let { parseTime(it) } ?: LocalTime.of(9, 0)
+        
+        val triggerTime = LocalDateTime.of(date, time)
+            .minusMinutes(task.notifyMinutesBefore.toLong())
+        
+        if (triggerTime.isBefore(now)) return
+
+        val triggerAtMillis = toMillis(triggerTime)
+        val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
+        
+        // ステップ用ID: ID衝突を避けるため 1,000,000 以上のオフセットを付与
+        val requestCode = 1_000_000 + step.id
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("taskId", task.id)
+            putExtra("stepId", step.id)
+            putExtra("title", "【${step.title}】${task.title}")
+            val msg = if (task.notifyMinutesBefore > 0) "「${step.title}」の${task.notifyMinutesBefore}分前です"
+                      else "「${step.title}」の時間です"
+            putExtra("message", msg)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+            } else {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+            }
+        } else {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+        }
+    }
+
+    /** ステップ用通知のキャンセル */
+    fun cancelForStep(context: Context, stepId: Int) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
+        val intent = Intent(context, AlarmReceiver::class.java)
+        val requestCode = 1_000_000 + stepId
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
         pendingIntent?.let { alarmManager.cancel(it) }

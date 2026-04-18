@@ -12,6 +12,7 @@ class TaskRepository(
     fun getAll(): Flow<List<Task>> = dao.getAll()
     fun getByDate(date: String): Flow<List<Task>> = dao.getByDate(date)
     suspend fun getById(id: Int): Task? = dao.getById(id)
+    fun getByIdFlow(id: Int): Flow<Task?> = dao.getByIdFlow(id)
     fun search(query: String): Flow<List<Task>> = dao.searchByTitle(query)
     fun getDeleted(): Flow<List<Task>> = dao.getDeleted()
     fun getIndefinite(): Flow<List<Task>> = dao.getIndefiniteTasks()
@@ -87,12 +88,23 @@ class TaskRepository(
     suspend fun getNextIncompleteStep(taskId: Int) = 
         roadmapDao.getNextIncompleteStep(taskId)
 
+    // ロードマップ進行ロジック
     suspend fun calculateRoadmapProgress(taskId: Int): Int {
         val task = dao.getById(taskId) ?: return 0
-        val total = roadmapDao.countAllSteps(taskId) + 1 // +1 はタスク本体(START)
-        if (total <= 1) return 0
-        val completedSteps = roadmapDao.countCompletedSteps(taskId)
-        val completedTotal = completedSteps + (if (task.activeRoadmapStepId != null || task.isCompleted) 1 else 0)
-        return (completedTotal * 100) / total
+        if (!task.roadmapEnabled) return task.progress
+        
+        val totalSteps = roadmapDao.countAllSteps(taskId) + 1 // START (+1)
+        if (totalSteps <= 1) return 0
+        
+        val completedStepsInDb = roadmapDao.countCompletedSteps(taskId)
+        // STARTを通過している(activeStepが設定されている)、またはタスク自体が完了しているなら+1
+        val completedCount = completedStepsInDb + (if (task.activeRoadmapStepId != null || task.isCompleted) 1 else 0)
+        
+        return (completedCount * 100) / totalSteps
+    }
+
+    suspend fun syncTaskProgress(taskId: Int) {
+        val progress = calculateRoadmapProgress(taskId)
+        dao.updateProgress(taskId, progress, System.currentTimeMillis())
     }
 }
