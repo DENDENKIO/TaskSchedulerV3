@@ -26,6 +26,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import java.time.LocalDate
+import androidx.compose.ui.layout.onGloballyPositioned
+
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.ExperimentalMaterial3Api
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,18 +38,20 @@ fun AddTaskBottomSheet(
     onDismiss: () -> Unit,
     vm: AddTaskViewModel = viewModel()
 ) {
+    var showCloseConfirmation by remember { mutableStateOf(false) }
+    var sheetHeight by remember { mutableFloatStateOf(0f) }
+
     val title by vm.title.collectAsState()
     val description by vm.description.collectAsState()
     val startDate by vm.startDate.collectAsState()
     val startTime by vm.startTime.collectAsState()
-    val priority by vm.priority.collectAsState()
     val isIndefinite by vm.isIndefinite.collectAsState()
     val selectedTagIds by vm.selectedTagIds.collectAsState()
     val allTags by vm.allTags.collectAsState()
     val saveSuccess by vm.saveSuccess.collectAsState()
-    val parentTask by vm.parentTask.collectAsState() // ステップ5
-    val allTasks by vm.allTasks.collectAsState()     // ステップ5
-    val roadmapEnabled by vm.roadmapEnabled.collectAsState() // ステップ6
+    val parentTask by vm.parentTask.collectAsState()
+    val allTasks by vm.allTasks.collectAsState()
+    val roadmapEnabled by vm.roadmapEnabled.collectAsState()
     val notifyEnabled by vm.notifyEnabled.collectAsState()
     val notifyMinutesBefore by vm.notifyMinutesBefore.collectAsState()
 
@@ -54,7 +60,27 @@ fun AddTaskBottomSheet(
     val ocrResult by photoVm.ocrResult.collectAsState()
     val isOcrProcessing by photoVm.isProcessing.collectAsState()
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // 初期化中の循環参照を避けるための参照保持用
+    val sheetStateRef = remember { mutableStateOf<SheetState?>(null) }
+
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { newValue ->
+            if (newValue == SheetValue.Hidden) {
+                val currentOffset = sheetStateRef.value?.requireOffset() ?: 0f
+                val threshold = sheetHeight * 0.8f
+                
+                if (currentOffset > threshold) {
+                    showCloseConfirmation = true
+                }
+                false 
+            } else {
+                true
+            }
+        }
+    )
+    // 実体を紐づける
+    SideEffect { sheetStateRef.value = sheetState }
 
     LaunchedEffect(taskId) {
         if (taskId != null) {
@@ -66,6 +92,26 @@ fun AddTaskBottomSheet(
 
     LaunchedEffect(saveSuccess) {
         if (saveSuccess) onDismiss()
+    }
+
+    // 破棄確認ダイアログ
+    if (showCloseConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showCloseConfirmation = false },
+            title = { Text("内容の破棄") },
+            text = { Text("入力中の内容は保存されません。破棄して閉じますか？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCloseConfirmation = false
+                        onDismiss()
+                    }
+                ) { Text("破棄", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloseConfirmation = false }) { Text("キャンセル") }
+            }
+        )
     }
 
     // DatePicker/TimePicker state
@@ -159,22 +205,32 @@ fun AddTaskBottomSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            showCloseConfirmation = true
+        },
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        // ─── 右上保存ボタン ───
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .onGloballyPositioned { coords ->
+                    sheetHeight = coords.size.height.toFloat()
+                }
         ) {
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Default.Close, contentDescription = "閉じる")
-            }
+            Column {
+                // ─── 右上保存ボタン ───
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { showCloseConfirmation = true }) {
+                        Icon(Icons.Default.Close, contentDescription = "閉じる")
+                    }
             Text(
                 if (taskId == null) "新規タスク" else "タスクを編集",
                 style = MaterialTheme.typography.titleMedium
@@ -371,6 +427,8 @@ fun AddTaskBottomSheet(
             )
 
             Spacer(Modifier.height(8.dp))
-        } // Column
-    } // ModalBottomSheet
+        } // inner Column
+    } // outer Column
+} // Box
+} // ModalBottomSheet
 }

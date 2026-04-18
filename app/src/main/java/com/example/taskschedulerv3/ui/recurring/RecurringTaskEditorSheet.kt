@@ -10,6 +10,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+
 /**
  * 繰り返し予定の追加・編集シート (第7弾)
  *
@@ -28,6 +32,8 @@ fun RecurringTaskEditorSheet(
     onSave: (title: String, startDate: String, pattern: String, days: String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var showCloseConfirmation by remember { mutableStateOf(false) }
+    var sheetHeight by remember { mutableFloatStateOf(0f) }
     var title by remember { mutableStateOf(initialTitle) }
     var startDate by remember { mutableStateOf(initialStartDate) }
     var selectedPattern by remember { mutableStateOf(initialPattern) }
@@ -50,51 +56,97 @@ fun RecurringTaskEditorSheet(
         }
     }
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetStateRef = remember { mutableStateOf<SheetState?>(null) }
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { newValue ->
+            if (newValue == SheetValue.Hidden) {
+                val currentOffset = sheetStateRef.value?.requireOffset() ?: 0f
+                val threshold = sheetHeight * 0.8f
+                
+                if (currentOffset > threshold) {
+                    showCloseConfirmation = true
+                }
+                false
+            } else {
+                true
+            }
+        }
+    )
+    SideEffect { sheetStateRef.value = sheetState }
+
+    // 破棄確認ダイアログ
+    if (showCloseConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showCloseConfirmation = false },
+            title = { Text("情報の破棄") },
+            text = { Text("入力中の繰り返し設定を破棄して閉じますか？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCloseConfirmation = false
+                        onDismiss()
+                    }
+                ) { Text("破棄", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloseConfirmation = false }) { Text("キャンセル") }
+            }
+        )
+    }
+
+    // 日付選択ダイアログ
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val local = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                        startDate = local.toString()
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("キャンセル") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            // スワイプ時にすぐに閉じずダイアログを出す
+            showCloseConfirmation = true
+        },
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        
-        // 日付選択ダイアログ
-        if (showDatePicker) {
-            val datePickerState = rememberDatePickerState(
-                initialSelectedDateMillis = System.currentTimeMillis()
-            )
-            DatePickerDialog(
-                onDismissRequest = { showDatePicker = false },
-                confirmButton = {
-                    TextButton(onClick = {
-                        datePickerState.selectedDateMillis?.let { millis ->
-                            val local = java.time.Instant.ofEpochMilli(millis)
-                                .atZone(java.time.ZoneId.of("UTC")).toLocalDate()
-                            startDate = local.toString()
-                        }
-                        showDatePicker = false
-                    }) { Text("OK") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDatePicker = false }) { Text("キャンセル") }
-                }
-            ) {
-                DatePicker(state = datePickerState)
-            }
-        }
-
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
-                .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .onGloballyPositioned { coords ->
+                    sheetHeight = coords.size.height.toFloat()
+                }
         ) {
-            Text(
-                if (initialTitle.isBlank()) "繰り返し予定を追加" else "繰り返し予定を編集",
-                style = MaterialTheme.typography.titleLarge
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(bottom = 32.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    if (initialTitle.isBlank()) "繰り返し予定を追加" else "繰り返し予定を編集",
+                    style = MaterialTheme.typography.titleLarge
+                )
 
             OutlinedTextField(
                 value = title,
@@ -222,4 +274,5 @@ fun RecurringTaskEditorSheet(
             }
         }
     }
+}
 }

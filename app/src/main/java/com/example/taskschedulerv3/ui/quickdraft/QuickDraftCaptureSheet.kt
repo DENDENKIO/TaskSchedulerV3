@@ -37,14 +37,12 @@ import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.util.PhotoFileManager
 import java.io.File
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.ExperimentalMaterial3Api
 
 /**
  * 仮登録フロー BottomSheet
- *
- * フロー:
- * 1. 写真撮影またはギャラリー選択
- * 2. タグ選択（省略可）
- * 3. 保存ボタン → onSave(photoPath, selectedTagIds) を呼び出し
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +53,8 @@ fun QuickDraftCaptureSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    var showCloseConfirmation by remember { mutableStateOf(false) }
+    var sheetHeight by remember { mutableFloatStateOf(0f) }
 
     // 取得した写真の状態管理
     var capturedPhotoPath by remember { mutableStateOf<String?>(null) }
@@ -119,17 +119,66 @@ fun QuickDraftCaptureSheet(
         }
     }
 
+    val draftSheetStateRef = remember { mutableStateOf<SheetState?>(null) }
+    val draftSheetState = rememberModalBottomSheetState(
+        confirmValueChange = { newValue ->
+            if (newValue == SheetValue.Hidden) {
+                val currentOffset = draftSheetStateRef.value?.requireOffset() ?: 0f
+                val threshold = sheetHeight * 0.8f
+                
+                if (currentOffset > threshold) {
+                    showCloseConfirmation = true
+                }
+                false
+            } else {
+                true
+            }
+        }
+    )
+    SideEffect { draftSheetStateRef.value = draftSheetState }
+
+    // 破棄確認ダイアログ
+    if (showCloseConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showCloseConfirmation = false },
+            title = { Text("入力内容の破棄") },
+            text = { Text("仮登録を中断して閉じますか？内容は保存されません。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCloseConfirmation = false
+                        onDismiss()
+                    }
+                ) { Text("破棄", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloseConfirmation = false }) { Text("キャンセル") }
+            }
+        )
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            // スワイプ時にすぐに閉じずダイアログを出す
+            showCloseConfirmation = true
+        },
+        sheetState = draftSheetState,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 36.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .onGloballyPositioned { coords ->
+                    sheetHeight = coords.size.height.toFloat()
+                }
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 36.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // ─── タイトルと保存ボタン ───
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -303,4 +352,5 @@ fun QuickDraftCaptureSheet(
 
         }
     }
+}
 }

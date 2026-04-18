@@ -148,22 +148,6 @@ fun TaskDetailScreen(
                     }
                 }
 
-                // Priority
-                item {
-                    val (priorityColor, priorityLabel) = when (t.priority) {
-                        0 -> Color(0xFFE53935) to "高"
-                        2 -> Color(0xFF43A047) to "低"
-                        else -> Color(0xFFFB8C00) to "中"
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("優先度:", style = MaterialTheme.typography.labelLarge)
-                        Surface(color = priorityColor, shape = MaterialTheme.shapes.small) {
-                            Text(priorityLabel, color = Color.White,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
 
                 // Notification
                 item {
@@ -310,23 +294,14 @@ fun InfoRow(label: String, value: String) {
 
 @Composable
 fun RelatedTaskRow(task: Task, onClick: () -> Unit) {
-    val priorityColor = when (task.priority) {
-        0 -> Color(0xFFE53935); 2 -> Color(0xFF43A047); else -> Color(0xFFFB8C00)
-    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(vertical = 6.dp),
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .width(4.dp)
-                .height(36.dp)
-                .background(priorityColor, MaterialTheme.shapes.extraSmall)
-        )
         Column(modifier = Modifier.weight(1f)) {
             Text(task.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             Text(

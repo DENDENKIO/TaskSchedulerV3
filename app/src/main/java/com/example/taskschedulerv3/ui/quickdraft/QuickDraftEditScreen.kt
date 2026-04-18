@@ -39,7 +39,6 @@ fun QuickDraftEditScreen(
     var memo by remember { mutableStateOf("") }
     var startDate by remember { mutableStateOf("") }
     var startTime by remember { mutableStateOf("") }
-    var priority by remember { mutableIntStateOf(1) }
     var selectedTagIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showConvertDialog by remember { mutableStateOf(false) }
@@ -101,7 +100,7 @@ fun QuickDraftEditScreen(
                     draft?.let {
                         val updatedTags = if (selectedTagIds.isEmpty()) null else selectedTagIds.joinToString(",")
                         vm.updateDraft(it.copy(title = title, description = memo.ifBlank { null }, tagIds = updatedTags))
-                        vm.convertToTask(it.copy(title = title, description = memo.ifBlank { null }, tagIds = updatedTags), startDate.ifBlank { java.time.LocalDate.now().toString() }, priority)
+                        vm.convertToTask(it.copy(title = title, description = memo.ifBlank { null }, tagIds = updatedTags), startDate.ifBlank { java.time.LocalDate.now().toString() }, 1)
                     }
                     showConvertDialog = false
                 }) { Text("本登録する") }
@@ -241,19 +240,6 @@ fun QuickDraftEditScreen(
                 }
             }
 
-            // 優先度
-            Column {
-                Text("優先度", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(0 to "高", 1 to "中", 2 to "低").forEach { (v, label) ->
-                        FilterChip(
-                            selected = priority == v,
-                            onClick = { priority = v },
-                            label = { Text(label) }
-                        )
-                    }
-                }
-            }
 
             // タグ選択
             if (allTags.isNotEmpty()) {

@@ -30,12 +30,6 @@ import java.time.format.DateTimeFormatter
  * - 完了時にmuted化
  */
 
-private fun priorityColor(priority: Int): Color = when (priority) {
-    0 -> Color(0xFFF46060)  // 高: 赤
-    1 -> Color(0xFFF0A030)  // 中: 橙
-    2 -> Color(0xFF3DD68C)  // 低: 緑
-    else -> Color(0xFF555566)
-}
 
 @Composable
 fun TaskListRow(
@@ -64,7 +58,7 @@ fun TaskListRow(
                     .fillMaxHeight()
                     .background(
                         if (muted) Color(0xFF3A3A3A)
-                        else priorityColor(task.priority)
+                        else getTaskLineColor(task.startDate, task.isCompleted)
                     )
             )
 
@@ -115,7 +109,7 @@ fun TaskListRow(
                 LinearProgressIndicator(
                     progress = { if (task.isCompleted) 1f else progress },
                     modifier = Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(2.dp)),
-                    color = if (muted) Color(0xFF3A3A3A) else priorityColor(task.priority).copy(alpha = 0.7f),
+                    color = if (muted) Color(0xFF3A3A3A) else MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             }

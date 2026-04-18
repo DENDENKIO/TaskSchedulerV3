@@ -26,13 +26,24 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 // ────────────────────────────────────────────────
-// 優先度カラー (priority: 0=高, 1=中, 2=低)
+// 残り日数に応じたカラーラインの色 (3日以内=赤, 7日以内=オレンジ, その他=青)
 // ────────────────────────────────────────────────
-private fun priorityLineColor(priority: Int): Color = when (priority) {
-    0 -> Color(0xFFC0392B)
-    1 -> Color(0xFFD4891A)
-    2 -> Color(0xFF27AE60)
-    else -> Color(0xFFBDBDBD)
+fun getTaskLineColor(startDate: String, isCompleted: Boolean): Color {
+    if (isCompleted) return Color(0xFF757575) // 完了済み: グレー
+    
+    val today = LocalDate.now()
+    val date = try {
+        LocalDate.parse(startDate, DateTimeFormatter.ISO_LOCAL_DATE)
+    } catch (_: Exception) {
+        return Color(0xFF1E88E5) // 期限なし: 青
+    }
+    val days = ChronoUnit.DAYS.between(today, date)
+    
+    return when {
+        days <= 3 -> Color(0xFFE53935)  // 3日以内: 赤
+        days <= 7 -> Color(0xFFFB8C00)  // 7日以内: オレンジ
+        else      -> Color(0xFF1E88E5)  // その他: 青
+    }
 }
 
 // ────────────────────────────────────────────────
@@ -117,8 +128,8 @@ fun TaskRowItem(
     onClick: () -> Unit
 ) {
     val badge    = calcDaysBadge(task.startDate, task.isCompleted)
-    val priColor = priorityLineColor(task.priority)
-    val progColor = progressColor(task.progress, task.isCompleted)
+    val priColor = getTaskLineColor(task.startDate, task.isCompleted)
+    val progColor = MaterialTheme.colorScheme.primary // 優先度依存から標準色に変更
     val mutedColor = Color(0xFF7A7A8C)
 
     Surface(

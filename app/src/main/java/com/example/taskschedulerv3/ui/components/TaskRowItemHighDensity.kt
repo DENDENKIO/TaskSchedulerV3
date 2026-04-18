@@ -32,12 +32,7 @@ fun TaskRowItemHighDensity(
     onClick: () -> Unit
 ) {
     val task = uiModel.task
-    val priColor = when (task.priority) {
-        0 -> Color(0xFFC0392B)
-        1 -> Color(0xFFD4891A)
-        2 -> Color(0xFF27AE60)
-        else -> Color(0xFFBDBDBD)
-    }
+    val priColor = getTaskLineColor(task.startDate, task.isCompleted)
 
     Surface(
         modifier = Modifier

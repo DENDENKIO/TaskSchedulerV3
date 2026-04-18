@@ -145,27 +145,7 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 進行中のロードマップステップ名を取得する Flow (ステップ8) */
-    private val activeStepNames: StateFlow<Map<Int, String>> = db.roadmapStepDao().getStepsForTask(-1) // 引数はダミー
-        .onStart { emit(emptyList()) }
-        .flatMapLatest { _ ->
-            tasks.flatMapLatest { currentTasks ->
-                val ids = currentTasks.filter { it.roadmapEnabled && it.activeRoadmapStepId != null }
-                                     .mapNotNull { it.activeRoadmapStepId }
-                if (ids.isEmpty()) flowOf(emptyMap<Int, String>())
-                else {
-                    // ここで全特定IDのステップを一括取得する
-                    // 簡単のため、全ステップを取得してマップ化
-                    db.roadmapStepDao().getStepsForTask(-1).map { _ -> 
-                        // DAOに getStepsByIds(List<Int>) がないので、各タスクごとに取得するのは効率が悪いため
-                        // とりあえず全ステップを対象とするか、DAOにメソッドを追加すべき
-                        emptyMap<Int, String>()
-                    }
-                }
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
-
-    /** 関連情報（ステップ名・子タスク数）を集約するための Flow (ステップ8) */
+    // 関連情報（ステップ名・子タスク数）を集約するための Flow (ステップ8)
     val uiTasks: StateFlow<List<TaskListItemUiModel>> = combine(
         tasks,
         baseTaskFlow // トリガー用

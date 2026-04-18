@@ -34,7 +34,6 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val recurrencePattern = MutableStateFlow<RecurrencePattern?>(null)
     val recurrenceDays = MutableStateFlow("")
     val recurrenceEndDate = MutableStateFlow("")
-    val priority = MutableStateFlow(1)
     val notifyEnabled = MutableStateFlow(true)
     val notifyMinutesBefore = MutableStateFlow(60)
     val isIndefinite = MutableStateFlow(false)  // 無期限登録フラグ
@@ -94,7 +93,6 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             recurrencePattern.value = t.recurrencePattern
             recurrenceDays.value = t.recurrenceDays ?: ""
             recurrenceEndDate.value = t.recurrenceEndDate ?: ""
-            priority.value = t.priority
             notifyEnabled.value = t.notifyEnabled
             notifyMinutesBefore.value = t.notifyMinutesBefore
             isIndefinite.value = t.isIndefinite
@@ -126,7 +124,6 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         recurrencePattern.value = null
         recurrenceDays.value = ""
         recurrenceEndDate.value = ""
-        priority.value = 1
         notifyEnabled.value = true
         notifyMinutesBefore.value = 60
         isIndefinite.value = false
@@ -197,7 +194,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             recurrencePattern = recurrencePattern.value,
             recurrenceDays = recurrenceDays.value.ifEmpty { null },
             recurrenceEndDate = recurrenceEndDate.value.ifEmpty { null },
-            priority = priority.value,
+            priority = 1,
             notifyEnabled = notifyEnabled.value,
             notifyMinutesBefore = notifyMinutesBefore.value,
             isIndefinite = isIndefinite.value,

@@ -29,6 +29,10 @@ import coil.compose.AsyncImage
 import com.example.taskschedulerv3.util.PhotoFileManager
 import java.io.File
 
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTaskPhotoSection(
@@ -108,14 +112,63 @@ fun AddTaskPhotoSection(
     }
 
     if (showSourcePicker) {
-        ModalBottomSheet(onDismissRequest = { showSourcePicker = false }) {
-            Column(
+        var showCloseConfirmation by remember { mutableStateOf(false) }
+        var sheetHeight by remember { mutableFloatStateOf(0f) }
+        val pickerSheetStateRef = remember { mutableStateOf<SheetState?>(null) }
+        val pickerSheetState = rememberModalBottomSheetState(
+            confirmValueChange = { newValue ->
+                if (newValue == SheetValue.Hidden) {
+                    val currentOffset = pickerSheetStateRef.value?.requireOffset() ?: 0f
+                    val threshold = sheetHeight * 0.8f
+                    
+                    if (currentOffset > threshold) {
+                        showCloseConfirmation = true
+                    }
+                    false
+                } else {
+                    true
+                }
+            }
+        )
+        SideEffect { pickerSheetStateRef.value = pickerSheetState }
+
+        if (showCloseConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showCloseConfirmation = false },
+                title = { Text("閉じる") },
+                text = { Text("写真の追加をキャンセルしますか？") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showCloseConfirmation = false
+                            showSourcePicker = false
+                        }
+                    ) { Text("閉じる") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCloseConfirmation = false }) { Text("戻る") }
+                }
+            )
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { showCloseConfirmation = true },
+            sheetState = pickerSheetState
+        ) {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .onGloballyPositioned { coords ->
+                        sheetHeight = coords.size.height.toFloat()
+                    }
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .padding(bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                 Text("写真の追加", style = MaterialTheme.typography.titleMedium)
                 
                 ListItem(
@@ -149,9 +202,10 @@ fun AddTaskPhotoSection(
                         showSourcePicker = false
                     }
                 )
-            }
-        }
-    }
+            } // Column
+        } // Box
+    } // ModalBottomSheet
+} // if (showSourcePicker)
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
