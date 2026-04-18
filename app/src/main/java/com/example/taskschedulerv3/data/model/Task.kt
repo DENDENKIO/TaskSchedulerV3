@@ -24,6 +24,9 @@ data class Task(
     val deletedAt: Long? = null,
     val isIndefinite: Boolean = false,     // 無期限登録フラグ
     val progress: Int = 0,                 // 進捗率 (0-100)
+    val parentTaskId: Int? = null,         // 親タスクID
+    val roadmapEnabled: Boolean = false,   // ロードマップ有効フラグ
+    val activeRoadmapStepId: Int? = null,  // 現在アクティブなステップID
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

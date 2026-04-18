@@ -17,7 +17,7 @@ import java.time.LocalDate
 
 class RecurringViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
-    private val repo = TaskRepository(db.taskDao())
+    private val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
 
     val recurringTasks: StateFlow<List<Task>> = repo.getAll()
         .map { tasks -> tasks.filter { it.scheduleType == ScheduleType.RECURRING } }

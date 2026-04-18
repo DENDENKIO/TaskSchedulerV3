@@ -52,6 +52,7 @@ object AlarmScheduler {
             ScheduleType.RECURRING -> {
                 return calculateNextTriggerMillisAfter(task, LocalDate.now().minusDays(1))
             }
+            ScheduleType.ROADMAP -> null
         }
     }
 

@@ -18,7 +18,7 @@ import java.io.File
 
 class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
-    private val repo = TaskRepository(db.taskDao())
+    private val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
     private val tagRepo = TagRepository(db.tagDao())
     private val photoRepo = PhotoMemoRepository(db.photoMemoDao())
     private val relationRepo = TaskRelationRepository(db.taskRelationDao())
@@ -38,6 +38,8 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val notifyEnabled = MutableStateFlow(true)
     val notifyMinutesBefore = MutableStateFlow(10)
     val isIndefinite = MutableStateFlow(false)  // 無期限登録フラグ
+    val parentTaskId = MutableStateFlow<Int?>(null) // 親タスクID (ステップ5)
+    val roadmapEnabled = MutableStateFlow(false) // ロードマップ有効化 (ステップ6)
 
     // Tag selection
     val selectedTagIds = MutableStateFlow<Set<Int>>(emptySet())
@@ -62,6 +64,11 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     val relatedTasks: StateFlow<List<Task>> = combine(relatedTaskIds, allTasks) { ids, tasks ->
         tasks.filter { it.id in ids }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // 親タスクオブジェクト (ステップ5)
+    val parentTask: StateFlow<Task?> = combine(parentTaskId, allTasks) { id, tasks ->
+        tasks.find { it.id == id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // Photo attachments
     private val _pendingPhotoPaths = MutableStateFlow<List<String>>(emptyList())
@@ -91,6 +98,8 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             notifyEnabled.value = t.notifyEnabled
             notifyMinutesBefore.value = t.notifyMinutesBefore
             isIndefinite.value = t.isIndefinite
+            parentTaskId.value = t.parentTaskId // ステップ5
+            roadmapEnabled.value = t.roadmapEnabled // ステップ6
         }
         crossRefDao.getTagsByTaskId(taskId).first().let { tags ->
             selectedTagIds.value = tags.map { it.id }.toSet()
@@ -121,6 +130,8 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         notifyEnabled.value = true
         notifyMinutesBefore.value = 10
         isIndefinite.value = false
+        parentTaskId.value = null // ステップ5
+        roadmapEnabled.value = false // ステップ6
         selectedTagIds.value = emptySet()
         _pendingPhotoPaths.value = emptyList()
         _existingPhotos.value = emptyList()
@@ -190,6 +201,8 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
             notifyEnabled = notifyEnabled.value,
             notifyMinutesBefore = notifyMinutesBefore.value,
             isIndefinite = isIndefinite.value,
+            parentTaskId = parentTaskId.value, // ステップ5
+            roadmapEnabled = roadmapEnabled.value, // ステップ6
             updatedAt = System.currentTimeMillis()
         )
         val finalId = if (editId != null) {

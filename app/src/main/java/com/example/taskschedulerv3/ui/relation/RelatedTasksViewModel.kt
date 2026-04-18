@@ -9,10 +9,12 @@ import com.example.taskschedulerv3.data.repository.TaskRelationRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class RelatedTasksViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
-    private val repo = TaskRepository(db.taskDao())
+    private val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
     private val relationRepo = TaskRelationRepository(db.taskRelationDao())
 
     private val _originTaskId = MutableStateFlow<Int?>(null)

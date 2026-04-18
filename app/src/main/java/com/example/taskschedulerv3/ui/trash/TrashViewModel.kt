@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 
 class TrashViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
-    private val repo = TaskRepository(db.taskDao())
+    private val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
 
     val deletedTasks: StateFlow<List<Task>> = repo.getDeleted()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

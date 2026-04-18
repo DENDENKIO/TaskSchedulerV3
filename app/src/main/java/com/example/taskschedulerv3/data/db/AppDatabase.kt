@@ -19,9 +19,10 @@ import com.example.taskschedulerv3.data.model.*
         PhotoMemo::class,
         TaskCompletion::class,
         PhotoTagCrossRef::class,
-        QuickDraftTask::class
+        QuickDraftTask::class,
+        RoadmapStep::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -34,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskCompletionDao(): TaskCompletionDao
     abstract fun photoTagCrossRefDao(): PhotoTagCrossRefDao
     abstract fun quickDraftTaskDao(): QuickDraftTaskDao
+    abstract fun roadmapStepDao(): RoadmapStepDao
 
     companion object {
         @Volatile
@@ -102,6 +104,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration: v7 -> v8: add parentTaskId, roadmap fields to tasks and create roadmap_steps table
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE tasks ADD COLUMN parentTaskId INTEGER")
+                database.execSQL("ALTER TABLE tasks ADD COLUMN roadmapEnabled INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE tasks ADD COLUMN activeRoadmapStepId INTEGER")
+
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `roadmap_steps` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `taskId` INTEGER NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `date` TEXT,
+                        `sortOrder` INTEGER NOT NULL,
+                        `isCompleted` INTEGER NOT NULL DEFAULT 0,
+                        `completedAt` INTEGER,
+                        `notificationEnabled` INTEGER NOT NULL DEFAULT 1,
+                        `notificationRequestCode` INTEGER
+                    )
+                """.trimIndent())
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -109,7 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "task_scheduler.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build().also { INSTANCE = it }
             }
     }

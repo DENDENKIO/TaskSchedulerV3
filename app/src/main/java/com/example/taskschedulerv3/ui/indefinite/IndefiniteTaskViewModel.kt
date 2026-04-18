@@ -14,7 +14,7 @@ import java.time.LocalDate
 
 class IndefiniteTaskViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
-    private val repo = TaskRepository(db.taskDao())
+    private val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
 
     val indefiniteTasks: StateFlow<List<Task>> = repo.getIndefinite()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

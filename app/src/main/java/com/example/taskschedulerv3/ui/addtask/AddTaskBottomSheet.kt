@@ -1,5 +1,6 @@
 package com.example.taskschedulerv3.ui.addtask
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -8,6 +9,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +20,9 @@ import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.ui.components.TagSelector
 import com.example.taskschedulerv3.ui.photo.OcrResultDialog
 import com.example.taskschedulerv3.ui.photo.TaskPhotoViewModel
+import androidx.compose.ui.draw.rotate
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,6 +41,9 @@ fun AddTaskBottomSheet(
     val selectedTagIds by vm.selectedTagIds.collectAsState()
     val allTags by vm.allTags.collectAsState()
     val saveSuccess by vm.saveSuccess.collectAsState()
+    val parentTask by vm.parentTask.collectAsState() // ステップ5
+    val allTasks by vm.allTasks.collectAsState()     // ステップ5
+    val roadmapEnabled by vm.roadmapEnabled.collectAsState() // ステップ6
 
     // OCR ViewModel
     val photoVm: TaskPhotoViewModel = viewModel()
@@ -59,6 +67,7 @@ fun AddTaskBottomSheet(
     // DatePicker/TimePicker state
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showParentSelector by remember { mutableStateOf(false) } // ステップ5
 
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(
@@ -94,12 +103,54 @@ fun AddTaskBottomSheet(
     }
 
     // OCR Result Dialog
-    ocrResult?.let { text ->
+    if (ocrResult != null) {
         OcrResultDialog(
-            text = text,
-            onApplyToTitle = { vm.applyOcrToTitle(it) },
-            onApplyToDescription = { newText, isAppend -> vm.applyOcrToDescription(newText, isAppend) },
+            text = ocrResult!!,
+            onApplyToTitle = { vm.title.value = it },
+            onApplyToDescription = { text, append -> 
+                if (append) vm.description.value += "\n$text"
+                else vm.description.value = text
+            },
             onDismiss = { photoVm.clearOcrResult() }
+        )
+    }
+
+    // 親予定選択ダイアログ (ステップ5)
+    if (showParentSelector) {
+        AlertDialog(
+            onDismissRequest = { showParentSelector = false },
+            title = { Text("親予定を選択") },
+            text = {
+                val availableTasks = allTasks.filter { it.id != taskId && !it.isCompleted }
+                if (availableTasks.isEmpty()) {
+                    Text("選択可能な予定がありません")
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                        item {
+                            ListItem(
+                                headlineContent = { Text("指定なし") },
+                                modifier = Modifier.clickable {
+                                    vm.parentTaskId.value = null
+                                    showParentSelector = false
+                                }
+                            )
+                        }
+                        items(availableTasks) { t ->
+                            ListItem(
+                                headlineContent = { Text(t.title) },
+                                supportingContent = { Text(t.startDate) },
+                                modifier = Modifier.clickable {
+                                    vm.parentTaskId.value = t.id
+                                    showParentSelector = false
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showParentSelector = false }) { Text("閉じる") }
+            }
         )
     }
 
@@ -200,16 +251,32 @@ fun AddTaskBottomSheet(
                 }
             }
 
+
+
+            // ロードマップトグル (ステップ6)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text("ロードマップ機能を有効にする", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = roadmapEnabled,
+                    onCheckedChange = { vm.roadmapEnabled.value = it }
+                )
+            }
+
+            // 親予定選択部 (ステップ5)
             Column {
-                Text("優先度", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(0 to "高", 1 to "中", 2 to "低").forEach { (v, label) ->
-                        FilterChip(
-                            selected = priority == v,
-                            onClick = { vm.priority.value = v },
-                            label = { Text(label) }
-                        )
-                    }
+                Text("親予定", style = MaterialTheme.typography.labelLarge)
+                OutlinedButton(
+                    onClick = { showParentSelector = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(12.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(20.dp).rotate(if (showParentSelector) 90f else 0f))
+                    Spacer(Modifier.width(8.dp))
+                    Text(parentTask?.title ?: "指定なし")
                 }
             }
 

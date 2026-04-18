@@ -9,6 +9,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,7 +39,7 @@ fun ScheduleListScreenHighDensity(
     onAddTask: () -> Unit,
     vm: ScheduleListViewModel = viewModel()
 ) {
-    val tasks by vm.tasks.collectAsState()
+    val uiTasks by vm.uiTasks.collectAsState() // ステップ8
     val drafts by vm.drafts.collectAsState()
     val allTags by vm.allTags.collectAsState()
     val sortOption by vm.sortOption.collectAsState()
@@ -51,15 +54,16 @@ fun ScheduleListScreenHighDensity(
 
     val today = LocalDate.now()
 
-    val finalTasks = remember(tasks, filteredPriority) {
-        if (filteredPriority == null) tasks
-        else tasks.filter { it.priority == filteredPriority }
+    val finalTasks = remember(uiTasks, filteredPriority) {
+        if (filteredPriority == null) uiTasks.map { it.task }
+        else uiTasks.map { it.task }.filter { it.priority == filteredPriority }
     }
 
-    val grouped = remember(finalTasks, displayMode) {
-        if (displayMode == DisplayMode.DRAFT) emptyMap<String, List<Task>>()
+    val grouped = remember(uiTasks, displayMode) {
+        if (displayMode == DisplayMode.DRAFT) emptyMap<String, List<TaskListItemUiModel>>()
         else {
-            finalTasks.groupBy { task ->
+            uiTasks.groupBy { model ->
+                val task = model.task
                 when {
                     task.isIndefinite -> "無期限"
                     task.scheduleType == ScheduleType.RECURRING -> "繰り返し"
@@ -101,10 +105,19 @@ fun ScheduleListScreenHighDensity(
                 Box {
                     IconButton(onClick = { showSortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, null) }
                     DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                        Text("   表示モード", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        DisplayMode.entries.forEach { mode ->
+                            DropdownMenuItem(
+                                text = { Text(mode.label, fontSize = 13.sp, fontWeight = if (displayMode == mode) FontWeight.Bold else FontWeight.Normal) },
+                                onClick = { vm.setDisplayMode(mode); showSortMenu = false }
+                            )
+                        }
+                        HorizontalDivider()
+                        Text("   並べ替え", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         listOf(
                             SortOption.DATE_ASC to "日付（昇順）", SortOption.DATE_DESC to "日付（降順）",
                             SortOption.PRIORITY_HIGH to "優先度（高→低）", SortOption.PRIORITY_LOW to "優先度（低→高）",
-                            SortOption.TITLE_ASC to "名前（昇順）", SortOption.TITLE_DESC to "名前（降順）"
+                            SortOption.TITLE_ASC to "名前（昇順）", SortOption.TITLE_DESC to "名前（順不問）"
                         ).forEach { (opt, label) ->
                             DropdownMenuItem(
                                 text = { Text(label, fontSize = 13.sp, fontWeight = if (sortOption == opt) FontWeight.Bold else FontWeight.Normal) },
@@ -116,28 +129,16 @@ fun ScheduleListScreenHighDensity(
             }
         )
 
-        ScrollableTabRow(
-            selectedTabIndex = DisplayMode.entries.indexOf(displayMode),
-            edgePadding = 12.dp,
-            containerColor = MaterialTheme.colorScheme.surface,
-            divider = {}
-        ) {
-            DisplayMode.entries.forEach { mode ->
-                Tab(
-                    selected = displayMode == mode,
-                    onClick = { vm.setDisplayMode(mode) },
-                    text = { Text(mode.label, fontSize = 12.sp, fontWeight = if (displayMode == mode) FontWeight.Bold else FontWeight.Normal) }
-                )
-            }
-        }
+        // 表示モード TabRow を削除 (メニューに移動)
 
+        // フィルタ部分 (タグ・優先度のみ)
         ScrollableTabRow(
             selectedTabIndex = 0,
             edgePadding = 12.dp,
             containerColor = MaterialTheme.colorScheme.surface,
             divider = {},
             indicator = {},
-            modifier = Modifier.height(48.dp)
+            modifier = Modifier.height(44.dp)
         ) {
             Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 FilterChip(
@@ -198,7 +199,7 @@ fun ScheduleListScreenHighDensity(
                 }
             }
         } else {
-            if (finalTasks.isEmpty()) {
+            if (uiTasks.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(text = "予定がありません", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
                 }
@@ -230,12 +231,12 @@ fun ScheduleListScreenHighDensity(
                             }
                             HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         }
-                        items(dateTasks, key = { it.id }) { task ->
+                        items(dateTasks, key = { it.task.id }) { model ->
                             val dismissState = rememberSwipeToDismissBoxState(
                                 confirmValueChange = { value ->
                                     when (value) {
-                                        SwipeToDismissBoxValue.EndToStart -> { vm.softDelete(task); true }
-                                        SwipeToDismissBoxValue.StartToEnd -> { vm.toggleComplete(task); false }
+                                        SwipeToDismissBoxValue.EndToStart -> { vm.softDelete(model.task); true }
+                                        SwipeToDismissBoxValue.StartToEnd -> { vm.toggleComplete(model.task); false }
                                         else -> false
                                     }
                                 }
@@ -250,14 +251,19 @@ fun ScheduleListScreenHighDensity(
                                             else -> Color.Transparent
                                         }, label = "swipe_bg"
                                     )
-                                    Box(modifier = Modifier.fillMaxSize().background(color))
+                                    Box(modifier = Modifier.fillMaxSize().background(color).padding(horizontal = 24.dp), contentAlignment = if (dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd) {
+                                        val icon = if (dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd) Icons.Default.Check else Icons.Default.Delete
+                                        if (color != Color.Transparent) {
+                                            Icon(icon, null, tint = Color.White)
+                                        }
+                                    }
                                 },
                                 content = {
-                                    TaskRowItem(
-                                        task = task,
-                                        tags = taskTagMap[task.id] ?: emptyList(),
-                                        onComplete = { vm.toggleComplete(task) },
-                                        onClick = { navController.navigate(Screen.TaskDetail.createRoute(task.id)) }
+                                    com.example.taskschedulerv3.ui.components.TaskRowItemHighDensity(
+                                        uiModel = model,
+                                        tags = taskTagMap[model.task.id] ?: emptyList(),
+                                        onComplete = { vm.toggleComplete(model.task) },
+                                        onClick = { navController.navigate(Screen.TaskDetail.createRoute(model.task.id)) }
                                     )
                                 }
                             )

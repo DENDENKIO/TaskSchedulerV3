@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 class PhotoDetailViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
     private val repo = PhotoMemoRepository(db.photoMemoDao())
-    private val taskRepo = com.example.taskschedulerv3.data.repository.TaskRepository(db.taskDao())
+    private val taskRepo = com.example.taskschedulerv3.data.repository.TaskRepository(db.taskDao(), db.roadmapStepDao())
     private val photoTagDao = db.photoTagCrossRefDao()
 
     private val _photoId = MutableStateFlow<Int?>(null)

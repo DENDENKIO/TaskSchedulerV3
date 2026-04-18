@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 val db = AppDatabase.getInstance(this@MainActivity)
-                val repo = TaskRepository(db.taskDao())
+                val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
                 repo.purgeOldDeleted()
                 val today = LocalDate.now().toString()
                 db.taskCompletionDao().deleteOlderThan(today)

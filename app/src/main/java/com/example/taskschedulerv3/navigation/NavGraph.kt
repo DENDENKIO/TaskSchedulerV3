@@ -42,6 +42,9 @@ sealed class Screen(val route: String) {
     object QuickDraftEdit : Screen("quick_draft_edit/{draftId}") {
         fun createRoute(draftId: Int) = "quick_draft_edit/$draftId"
     }
+    object RoadmapEdit : Screen("roadmap_edit/{taskId}") {
+        fun createRoute(taskId: Int) = "roadmap_edit/$taskId"
+    }
 
 }
 
@@ -106,6 +109,10 @@ fun AppNavGraph(
         composable("quick_draft_edit/{draftId}") { backStack ->
             val draftId = backStack.arguments?.getString("draftId")?.toIntOrNull() ?: return@composable
             QuickDraftEditScreen(navController = navController, draftId = draftId)
+        }
+        composable("roadmap_edit/{taskId}") { backStack ->
+            val taskId = backStack.arguments?.getString("taskId")?.toIntOrNull() ?: return@composable
+            com.example.taskschedulerv3.ui.roadmap.RoadmapEditScreen(navController = navController, taskId = taskId)
         }
     }
 }

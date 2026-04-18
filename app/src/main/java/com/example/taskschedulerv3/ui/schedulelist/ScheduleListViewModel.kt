@@ -18,7 +18,7 @@ import java.time.LocalDate
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
-    private val repo = TaskRepository(db.taskDao())
+    private val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
     private val tagRepo = TagRepository(db.tagDao())
     private val crossRefDao = db.taskTagCrossRefDao()
     val draftRepo = QuickDraftRepository(db.quickDraftTaskDao(), db.taskDao(), crossRefDao, db.photoMemoDao())
@@ -136,6 +136,85 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** 進行中のロードマップステップ名を取得する Flow (ステップ8) */
+    private val activeStepNames: StateFlow<Map<Int, String>> = db.roadmapStepDao().getStepsForTask(-1) // 引数はダミー
+        .onStart { emit(emptyList()) }
+        .flatMapLatest { _ ->
+            tasks.flatMapLatest { currentTasks ->
+                val ids = currentTasks.filter { it.roadmapEnabled && it.activeRoadmapStepId != null }
+                                     .mapNotNull { it.activeRoadmapStepId }
+                if (ids.isEmpty()) flowOf(emptyMap<Int, String>())
+                else {
+                    // ここで全特定IDのステップを一括取得する
+                    // 簡単のため、全ステップを取得してマップ化
+                    db.roadmapStepDao().getStepsForTask(-1).map { _ -> 
+                        // DAOに getStepsByIds(List<Int>) がないので、各タスクごとに取得するのは効率が悪いため
+                        // とりあえず全ステップを対象とするか、DAOにメソッドを追加すべき
+                        emptyMap<Int, String>()
+                    }
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** 関連情報（ステップ名・子タスク数）を集約するための Flow (ステップ8) */
+    val uiTasks: StateFlow<List<TaskListItemUiModel>> = combine(
+        tasks,
+        baseTaskFlow // トリガー用
+    ) { currentTasks, _ ->
+        val roadmapDao = db.roadmapStepDao()
+        val taskDao = db.taskDao()
+        
+        // パフォーマンスのため、一括取得してメモリ内でマップ化
+        val allSteps = roadmapDao.getAllStepsSync()
+        val stepMap = allSteps.associate { it.id to it.title }
+        
+        val allChildren = taskDao.getAllChildrenSync()
+        val childCountMap = allChildren.groupBy { it.parentTaskId }.mapValues { it.value.size }
+        
+        currentTasks.map { task ->
+            val emoji = when {
+                task.roadmapEnabled -> "🛣️"
+                task.scheduleType == ScheduleType.RECURRING -> "🔁"
+                task.isIndefinite -> "📝"
+                else -> "📅"
+            }
+
+            // ロードマップ進行中のタイトル生成
+            var activeLabel: String? = null
+            val displayTitle = if (task.roadmapEnabled && task.activeRoadmapStepId != null) {
+                val stepName = stepMap[task.activeRoadmapStepId] ?: "進行中"
+                activeLabel = stepName
+                "$emoji 【$stepName】${task.title}"
+            } else {
+                "$emoji ${task.title}"
+            }
+
+            val progress = if (task.roadmapEnabled) {
+                val total = allSteps.count { it.taskId == task.id } + 1
+                val completed = allSteps.count { it.taskId == task.id && it.isCompleted }
+                (completed * 100) / total
+            } else {
+                task.progress
+            }
+
+            TaskListItemUiModel(
+                task = task,
+                displayTitle = displayTitle,
+                displayDate = task.startDate,
+                progressPercent = progress,
+                emoji = emoji,
+                isRoadmapTask = task.roadmapEnabled,
+                activeStageLabel = activeLabel,
+                relatedCount = childCountMap[task.id] ?: 0
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun createUiModel(task: Task): TaskListItemUiModel {
+        // 後方互換のため残すが、uiTasks 内で直接生成するように変更
+        return TaskListItemUiModel(task, task.title, task.startDate, task.progress, "")
+    }
+
     private fun collectInclusiveTagIds(tagId: Int, allTags: List<Tag>): Set<Int> {
         val result = mutableSetOf(tagId)
         allTags.filter { it.parentId == tagId }.forEach {
@@ -162,6 +241,54 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     fun clearFilters() { filterOption.value = FilterOption(); selectedTagId.value = null }
 
     fun softDelete(task: Task) = viewModelScope.launch { repo.softDelete(task.id) }
-    fun toggleComplete(task: Task) = viewModelScope.launch { repo.setCompleted(task.id, !task.isCompleted) }
+    
+    // 完了処理の分岐基盤 (ステップ4)
+    fun toggleComplete(task: Task) = viewModelScope.launch {
+        if (task.roadmapEnabled) {
+            // ロードマップ進行ロジックへ (ステップ7で実装)
+            processRoadmapCompletion(task)
+        } else {
+            repo.setCompleted(task.id, !task.isCompleted)
+        }
+    }
+
+    private suspend fun processRoadmapCompletion(task: Task) {
+        val roadmapStepDao = db.roadmapStepDao()
+        val steps = roadmapStepDao.getStepsForTaskSync(task.id)
+        
+        if (steps.isEmpty()) {
+            // ステップがない場合は即座に本体完了
+            repo.setCompleted(task.id, true)
+            return
+        }
+
+        val currentStepId = task.activeRoadmapStepId
+        if (currentStepId == null) {
+            // 現在地が「本体(START)」の場合 -> 最初のステップをアクティブにする
+            val firstStep = steps.firstOrNull()
+            if (firstStep != null) {
+                db.taskDao().updateActiveRoadmapStep(task.id, firstStep.id, System.currentTimeMillis())
+            } else {
+                repo.setCompleted(task.id, true)
+            }
+        } else {
+            // 現在地が「ステップ」の場合 -> そのステップを完了し、次へ
+            roadmapStepDao.setStepCompleted(currentStepId, true, System.currentTimeMillis())
+            
+            val currentIndex = steps.indexOfFirst { it.id == currentStepId }
+            val nextStep = if (currentIndex != -1 && currentIndex < steps.size - 1) {
+                steps[currentIndex + 1]
+            } else {
+                null
+            }
+
+            if (nextStep != null) {
+                db.taskDao().updateActiveRoadmapStep(task.id, nextStep.id, System.currentTimeMillis())
+            } else {
+                // 次のステップがない = 全ロードマップ完了
+                repo.setCompleted(task.id, true)
+            }
+        }
+    }
     fun deleteDraft(draft: com.example.taskschedulerv3.data.model.QuickDraftTask) = viewModelScope.launch { draftRepo.delete(draft) }
 }

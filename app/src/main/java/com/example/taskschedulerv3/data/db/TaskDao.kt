@@ -54,7 +54,22 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE isCompleted = 1 AND isDeleted = 0 ORDER BY updatedAt DESC")
     fun getCompletedTasks(): Flow<List<Task>>
 
-    // タグでタスク取得 (task_tag_cross_ref 経由)
     @Query("SELECT t.* FROM tasks t INNER JOIN task_tag_cross_ref c ON t.id = c.taskId WHERE c.tagId IN (:tagIds) AND t.isDeleted = 0 ORDER BY t.startDate ASC")
     fun getTasksByTagIds(tagIds: List<Int>): Flow<List<Task>>
+
+    // 親子関係用
+    @Query("SELECT * FROM tasks WHERE parentTaskId = :parentId AND isDeleted = 0 ORDER BY startDate ASC")
+    fun getChildrenTasks(parentId: Int): Flow<List<Task>>
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE parentTaskId = :parentId AND isDeleted = 0")
+    suspend fun countChildren(parentId: Int): Int
+
+    @Query("UPDATE tasks SET parentTaskId = :parentId, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateParentTaskId(id: Int, parentId: Int?, updatedAt: Long)
+
+    @Query("SELECT * FROM tasks WHERE parentTaskId IS NOT NULL AND isDeleted = 0")
+    suspend fun getAllChildrenSync(): List<Task>
+
+    @Query("UPDATE tasks SET activeRoadmapStepId = :stepId, updatedAt = :updatedAt WHERE id = :taskId")
+    suspend fun updateActiveRoadmapStep(taskId: Int, stepId: Int?, updatedAt: Long)
 }

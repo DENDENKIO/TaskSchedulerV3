@@ -21,10 +21,22 @@ class AlarmReceiver : BroadcastReceiver() {
                 val task = db.taskDao().getById(taskId)
 
                 if (task != null && !task.isDeleted) {
+                    var displayTitle = task.title
+                    var message: String
+
+                    // ロードマップ情報の取得 (ステップ11)
+                    if (task.roadmapEnabled && task.activeRoadmapStepId != null) {
+                        val step = db.roadmapStepDao().getById(task.activeRoadmapStepId!!)
+                        if (step != null) {
+                            displayTitle = "【${step.title}】${task.title}"
+                        }
+                    }
+
                     val minutesBefore = task.notifyMinutesBefore
-                    val message = if (minutesBefore > 0) "${task.title}の${minutesBefore}分前です"
-                                  else "${task.title}の時間です"
-                    NotificationHelper.showNotification(context, taskId, task.title, message)
+                    message = if (minutesBefore > 0) "${displayTitle}の${minutesBefore}分前です"
+                              else "${displayTitle}の時間です"
+
+                    NotificationHelper.showNotification(context, taskId, displayTitle, message)
 
                     // For RECURRING tasks: schedule the NEXT occurrence after TODAY
                     if (task.scheduleType == ScheduleType.RECURRING && task.notifyEnabled) {
