@@ -153,6 +153,9 @@ fun QuickDraftListScreen(
             viewModel = vm,
             allTags = allTags,
             useAi = useAi,
+            onNavigateToEdit = { draftId ->
+                navController.navigate(Screen.QuickDraftEdit.createRoute(draftId))
+            },
             onSaveFallback = { photoPath, tagIds ->
                 vm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
             },

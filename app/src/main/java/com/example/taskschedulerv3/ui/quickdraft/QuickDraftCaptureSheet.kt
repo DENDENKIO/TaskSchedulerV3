@@ -44,6 +44,7 @@ fun QuickDraftCaptureSheet(
     allTags: List<Tag>,
     autoMode: Boolean = false,
     useAi: Boolean = false,
+    onNavigateToEdit: (Int) -> Unit = {},
     onSaveFallback: (photoPath: String?, tagIds: List<Int>) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -127,6 +128,16 @@ fun QuickDraftCaptureSheet(
     // AI処理完了を検知してシートを閉じる
     LaunchedEffect(isAiProcessing) {
         if (!isAiProcessing && capturedPhotoPath != null && autoMode) {
+            onDismiss()
+        }
+    }
+
+    // 遷移の監視
+    val navigateToDraftId by viewModel.navigateToDraftId.collectAsState()
+    LaunchedEffect(navigateToDraftId) {
+        navigateToDraftId?.let { draftId ->
+            onNavigateToEdit(draftId)
+            viewModel.clearNavigation()
             onDismiss()
         }
     }

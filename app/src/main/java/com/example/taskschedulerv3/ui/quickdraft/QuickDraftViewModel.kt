@@ -47,6 +47,9 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
     private val _isAiProcessing = MutableStateFlow(false)
     val isAiProcessing = _isAiProcessing.asStateFlow()
 
+    private val _navigateToDraftId = MutableStateFlow<Int?>(null)
+    val navigateToDraftId = _navigateToDraftId.asStateFlow()
+
     /**
      * 通常の仮登録保存（AIオフ時）
      */
@@ -55,13 +58,14 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
         ocrText: String? = null,
         tagIds: List<Int> = emptyList()
     ) = viewModelScope.launch {
-        insertDraft(
+        val newId = insertDraft(
             title = generateFallbackTitle(),
             description = null,
             photoPath = photoPath,
             ocrText = ocrText,
             tagIds = tagIds
         )
+        _navigateToDraftId.value = newId
     }
 
     /**
@@ -120,7 +124,7 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
             Log.e("QuickDraftVM", "AI Processing Error", e)
         } finally {
             // 4. DB保存
-            insertDraft(
+            val newId = insertDraft(
                 title = finalTitle,
                 description = aiSummary,
                 photoPath = photoPath,
@@ -131,6 +135,8 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
                 endTime = aiEndTime
             )
             _isAiProcessing.value = false
+            // 編集画面へ遷移させるためにIDを発行
+            _navigateToDraftId.value = newId
         }
     }
 
@@ -143,7 +149,7 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
         startDate: String? = null,
         startTime: String? = null,
         endTime: String? = null
-    ) {
+    ): Int {
         val tagIdsStr = if (tagIds.isEmpty()) null else tagIds.joinToString(",")
         val draft = QuickDraftTask(
             title = title,
@@ -156,7 +162,7 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
             startTime = startTime,
             endTime = endTime
         )
-        repo.insert(draft)
+        return repo.insert(draft).toInt()
     }
 
     private fun generateFallbackTitle(): String {
@@ -182,6 +188,10 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearConvertSuccess() { convertSuccess.value = false }
+
+    fun clearNavigation() {
+        _navigateToDraftId.value = null
+    }
 
     override fun onCleared() {
         super.onCleared()

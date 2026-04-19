@@ -249,6 +249,9 @@ fun TaskSchedulerApp() {
                 allTags = allTags,
                 autoMode = uiVm.quickDraftAutoMode,
                 useAi = useAi,
+                onNavigateToEdit = { draftId ->
+                    navController.navigate(Screen.QuickDraftEdit.createRoute(draftId))
+                },
                 onSaveFallback = { photoPath, tagIds ->
                     draftVm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
                 },
