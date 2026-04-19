@@ -12,9 +12,11 @@ import java.net.URL
 object AiModelManager {
 
     private const val MODEL_DIR = "ai_model"
-    private const val MODEL_FILENAME = "Gemma3-1B-IT.task"
+    private const val MODEL_FILENAME = "gemma3-1b-it-int4.litertlm"
+
+    // Gemma3-1B-IT int4 QAT版: 約529MB, CPU/GPU両対応, 高速推論
     private const val MODEL_DOWNLOAD_URL =
-        "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT.task"
+        "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.litertlm"
 
     sealed class ModelState {
         object NotDownloaded : ModelState()
@@ -40,6 +42,11 @@ object AiModelManager {
         val dir = File(context.filesDir, MODEL_DIR)
         if (!dir.exists()) dir.mkdirs()
         return File(dir, MODEL_FILENAME)
+    }
+
+    /** LiteRT-LM Engine に渡すモデルの絶対パス */
+    fun getModelPath(context: Context): String {
+        return getModelFile(context).absolutePath
     }
 
     fun getModelSizeMB(context: Context): Long {
@@ -88,6 +95,7 @@ object AiModelManager {
                 }
             }
 
+            // ダウンロード完了: 一時ファイルをリネーム
             if (file.exists()) file.delete()
             tmpFile.renameTo(file)
 
