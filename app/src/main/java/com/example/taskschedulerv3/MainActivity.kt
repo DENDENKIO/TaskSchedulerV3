@@ -156,10 +156,25 @@ fun TaskSchedulerApp() {
                     NavigationBarItem(
                         selected = routeMatches(currentRoute, item.route),
                         onClick = {
-                            if (currentRoute != item.route) {
+                            if (currentRoute == item.route) return@NavigationBarItem
+                            
+                            if (item.route == Screen.ScheduleListV2.route) {
+                                // 一覧に戻ろうとしている場合、スタックにある一覧までポップ（戻る）
+                                // これが詳細画面から戻る際の最も確実な方法です
+                                val popped = navController.popBackStack(item.route, false)
+                                if (!popped) {
+                                    // もしポップできなかった（スタックにない）場合は通常遷移
+                                    navController.navigate(item.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) { inclusive = false }
+                                        launchSingleTop = true
+                                    }
+                                }
+                            } else {
+                                // 設定などへの遷移は通常の navigate を使用
                                 navController.navigate(item.route) {
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
+                                        inclusive = false
                                     }
                                     launchSingleTop = true
                                     restoreState = true
