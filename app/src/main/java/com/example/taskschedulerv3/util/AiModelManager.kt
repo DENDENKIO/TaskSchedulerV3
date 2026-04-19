@@ -7,10 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import javax.net.ssl.HttpsURLConnection
 
 object AiModelManager {
 
@@ -59,9 +57,13 @@ object AiModelManager {
 
     /**
      * リダイレクトを手動で追跡する接続ヘルパー。
-     * Hugging Face は複数回のリダイレクト（302/303/307）を返すことがある。
+     * Hugging Face は複数回のリダイレクトを返すことがある。
      */
-    private fun openConnectionWithRedirects(urlStr: String, maxRedirects: Int = 10): HttpURLConnection {
+    private fun openConnectionWithRedirects(
+        urlStr: String,
+        hfToken: String,
+        maxRedirects: Int = 10
+    ): HttpURLConnection {
         var currentUrl = urlStr
         var redirectCount = 0
 
@@ -70,8 +72,13 @@ object AiModelManager {
             val connection = url.openConnection() as HttpURLConnection
             connection.connectTimeout = 60_000
             connection.readTimeout = 60_000
-            connection.instanceFollowRedirects = false // 手動でリダイレクト追跡
+            connection.instanceFollowRedirects = false
             connection.setRequestProperty("User-Agent", "TaskSchedulerV3/1.0")
+
+            if (hfToken.isNotBlank()) {
+                connection.setRequestProperty("Authorization", "Bearer $hfToken")
+            }
+
             connection.connect()
 
             val responseCode = connection.responseCode
@@ -94,15 +101,15 @@ object AiModelManager {
         throw Exception("リダイレクト回数が上限($maxRedirects)を超えました")
     }
 
-    suspend fun downloadModel(context: Context): Boolean = withContext(Dispatchers.IO) {
+    suspend fun downloadModel(context: Context, hfToken: String): Boolean = withContext(Dispatchers.IO) {
         try {
             _state.value = ModelState.Downloading(0)
-            Log.d(TAG, "ダウンロード開始: $MODEL_DOWNLOAD_URL")
+            Log.d(TAG, "ダウンロード開始: $MODEL_DOWNLOAD_URL (Token: ${hfToken.take(5)}...)")
 
             val file = getModelFile(context)
             val tmpFile = File(file.parent, "${file.name}.tmp")
 
-            val connection = openConnectionWithRedirects(MODEL_DOWNLOAD_URL)
+            val connection = openConnectionWithRedirects(MODEL_DOWNLOAD_URL, hfToken)
 
             val responseCode = connection.responseCode
             if (responseCode != HttpURLConnection.HTTP_OK) {
@@ -112,7 +119,7 @@ object AiModelManager {
                 connection.disconnect()
 
                 val errorMsg = when (responseCode) {
-                    401, 403 -> "アクセス拒否 (HTTP $responseCode)。Hugging Faceのライセンス同意が必要な可能性があります。"
+                    401, 403 -> "アクセス拒否 (HTTP $responseCode)。Hugging Faceトークンが無効か、ライセンス同意が必要です。"
                     404 -> "モデルが見つかりません (HTTP 404)"
                     else -> "ダウンロード失敗 (HTTP $responseCode): $errorBody"
                 }
@@ -135,7 +142,6 @@ object AiModelManager {
                         output.write(buffer, 0, bytesRead)
                         downloaded += bytesRead
 
-                        // 進捗更新を500msごとに制限（UIスレッド負荷軽減）
                         val now = System.currentTimeMillis()
                         if (totalSize > 0 && now - lastProgressUpdate > 500) {
                             val progress = (downloaded * 100 / totalSize).toInt()
@@ -147,7 +153,6 @@ object AiModelManager {
             }
             connection.disconnect()
 
-            // ダウンロード完了: サイズ検証
             if (tmpFile.length() < 100_000) {
                 tmpFile.delete()
                 _state.value = ModelState.Error("ダウンロードファイルが小さすぎます")
@@ -157,15 +162,13 @@ object AiModelManager {
             if (file.exists()) file.delete()
             tmpFile.renameTo(file)
 
-            Log.d(TAG, "ダウンロード完了: ${file.length() / (1024 * 1024)} MB")
+            Log.d(TAG, "ダウンロード完了")
             _state.value = ModelState.Ready
             true
         } catch (e: Exception) {
             Log.e(TAG, "ダウンロードエラー", e)
-            try {
-                val tmpFile = File(getModelFile(context).parent, "${MODEL_FILENAME}.tmp")
-                if (tmpFile.exists()) tmpFile.delete()
-            } catch (_: Exception) {}
+            val tmpFile = File(getModelFile(context).parent, "${MODEL_FILENAME}.tmp")
+            if (tmpFile.exists()) tmpFile.delete()
 
             _state.value = ModelState.Error("ダウンロード失敗: ${e.localizedMessage ?: "不明なエラー"}")
             false
