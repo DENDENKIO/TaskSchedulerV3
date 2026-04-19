@@ -240,7 +240,7 @@ fun TaskSchedulerApp() {
                 allTags = allTags,
                 autoMode = uiVm.quickDraftAutoMode,
                 onSave = { photoPath, tagIds ->
-                    draftVm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
+                    draftVm.createSmartDraft(photoPath = photoPath, tagIds = tagIds)
                 },
                 onDismiss = { uiVm.closeQuickDraftSheet() }
             )

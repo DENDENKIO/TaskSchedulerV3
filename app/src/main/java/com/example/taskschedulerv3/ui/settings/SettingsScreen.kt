@@ -9,10 +9,12 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.taskschedulerv3.navigation.Screen
+import com.example.taskschedulerv3.util.AiModelManager
 import com.example.taskschedulerv3.util.ThemeMode
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -26,17 +28,20 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSnackbar by remember { mutableStateOf<String?>(null) }
 
-    // Export: CreateDocument launcher
+    // AI関連
+    val aiEnabled by vm.aiEnabled.collectAsState()
+    val aiModelState by vm.aiModelState.collectAsState()
+    var showDeleteModelDialog by remember { mutableStateOf(false) }
+    var showAiOnConfirmDialog by remember { mutableStateOf(false) }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri -> uri?.let { vm.exportToUri(it) } }
 
-    // Import: OpenDocument launcher
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.importFromUri(it, overwrite = false) } }
 
-    // Handle state changes
     LaunchedEffect(exportImportState) {
         when (val s = exportImportState) {
             is ExportImportState.Success -> { showSnackbar = s.message; vm.clearState() }
@@ -45,30 +50,82 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
         }
     }
 
-    // Theme dialog
+    // テーマ選択ダイアログ
     if (showThemeDialog) {
         AlertDialog(
             onDismissRequest = { showThemeDialog = false },
             title = { Text("テーマ") },
             text = {
                 Column {
-                    listOf(ThemeMode.SYSTEM to "システム連動", ThemeMode.LIGHT to "ライト", ThemeMode.DARK to "ダーク")
-                        .forEach { (mode, label) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { vm.setThemeMode(mode); showThemeDialog = false }
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                RadioButton(selected = themeMode == mode, onClick = { vm.setThemeMode(mode); showThemeDialog = false })
-                                Text(label, style = MaterialTheme.typography.bodyLarge)
-                            }
+                    listOf(
+                        ThemeMode.SYSTEM to "システム連動",
+                        ThemeMode.LIGHT to "ライト",
+                        ThemeMode.DARK to "ダーク"
+                    ).forEach { (mode, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.setThemeMode(mode)
+                                    showThemeDialog = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            RadioButton(
+                                selected = themeMode == mode,
+                                onClick = {
+                                    vm.setThemeMode(mode)
+                                    showThemeDialog = false
+                                }
+                            )
+                            Text(label, style = MaterialTheme.typography.bodyLarge)
                         }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showThemeDialog = false }) { Text("閉じる") }
+            }
+        )
+    }
+
+    // AI ON確認ダイアログ（モデル未ダウンロード時）
+    if (showAiOnConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiOnConfirmDialog = false },
+            title = { Text("AIモデルのダウンロード") },
+            text = {
+                Text("AI機能を使用するには、約1GBのモデルデータをダウンロードする必要があります。\n\nWi-Fi環境でのダウンロードを推奨します。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.setAiEnabled(true)
+                    showAiOnConfirmDialog = false
+                }) { Text("ダウンロードして有効化") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiOnConfirmDialog = false }) { Text("キャンセル") }
+            }
+        )
+    }
+
+    // モデル削除確認ダイアログ
+    if (showDeleteModelDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteModelDialog = false },
+            title = { Text("AIモデルを削除") },
+            text = {
+                Text("AIモデルを削除してストレージを約${vm.getModelSizeMB()}MB解放します。\nAI機能はOFFになります。再度使用するにはダウンロードが必要です。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteAiModel()
+                    showDeleteModelDialog = false
+                }) { Text("削除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteModelDialog = false }) { Text("キャンセル") }
             }
         )
     }
@@ -87,7 +144,6 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
 
-            // Theme setting
             SettingsItem(
                 title = "テーマ",
                 subtitle = when (themeMode) {
@@ -141,33 +197,128 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             )
             HorizontalDivider()
 
-            // Export
             SettingsItem(
                 title = "データエクスポート",
                 subtitle = "スケジュールをJSONで保存",
                 onClick = {
-                    val filename = "taskscheduler_export_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.JAPAN).format(Date())}.json"
+                    val filename = "taskscheduler_export_${
+                        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.JAPAN).format(Date())
+                    }.json"
                     exportLauncher.launch(filename)
                 }
             )
             HorizontalDivider()
 
-            // Import
             SettingsItem(
                 title = "データインポート",
                 subtitle = "JSONからスケジュールを復元",
-                onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+                onClick = {
+                    importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                }
             )
             HorizontalDivider()
 
-            // Loading indicator for export/import
             if (exportImportState is ExportImportState.Loading) {
                 ListItem(
                     headlineContent = { Text("処理中...") },
-                    trailingContent = { CircularProgressIndicator(modifier = Modifier.size(20.dp)) }
+                    trailingContent = {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    }
                 )
                 HorizontalDivider()
             }
+
+            // ==================== AI設定セクション ==================== //
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            ListItem(
+                headlineContent = {
+                    Text(
+                        "AI機能",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        "写真から予定の日付・タイトル・内容を自動認識します",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            )
+
+            ListItem(
+                headlineContent = { Text("AI機能を使用する") },
+                supportingContent = {
+                    when (aiModelState) {
+                        is AiModelManager.ModelState.NotDownloaded ->
+                            Text(
+                                "ONにするとモデル（約1GB）をダウンロードします",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        is AiModelManager.ModelState.Downloading ->
+                            Text(
+                                "ダウンロード中... ${(aiModelState as AiModelManager.ModelState.Downloading).progress}%",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        is AiModelManager.ModelState.Ready ->
+                            Text(
+                                "モデルダウンロード済み（${vm.getModelSizeMB()}MB）",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        is AiModelManager.ModelState.Error ->
+                            Text(
+                                (aiModelState as AiModelManager.ModelState.Error).message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                    }
+                },
+                trailingContent = {
+                    Switch(
+                        checked = aiEnabled,
+                        onCheckedChange = { enabled ->
+                            if (enabled && aiModelState is AiModelManager.ModelState.NotDownloaded) {
+                                showAiOnConfirmDialog = true
+                            } else {
+                                vm.setAiEnabled(enabled)
+                            }
+                        },
+                        enabled = aiModelState !is AiModelManager.ModelState.Downloading
+                    )
+                }
+            )
+
+            if (aiModelState is AiModelManager.ModelState.Downloading) {
+                LinearProgressIndicator(
+                    progress = {
+                        (aiModelState as AiModelManager.ModelState.Downloading).progress / 100f
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
+            if (aiModelState is AiModelManager.ModelState.Ready) {
+                ListItem(
+                    headlineContent = {
+                        Text("AIモデルを削除", color = MaterialTheme.colorScheme.error)
+                    },
+                    supportingContent = {
+                        Text(
+                            "ストレージを約${vm.getModelSizeMB()}MB解放します",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    modifier = Modifier.clickable { showDeleteModelDialog = true }
+                )
+            }
+
+            HorizontalDivider()
+
+            // ==================== AI設定セクションここまで ==================== //
 
             ListItem(
                 headlineContent = { Text("バージョン情報") },

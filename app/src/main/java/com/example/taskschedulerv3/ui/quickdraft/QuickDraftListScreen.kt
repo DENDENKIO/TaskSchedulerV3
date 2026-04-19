@@ -144,7 +144,7 @@ fun QuickDraftListScreen(
         QuickDraftCaptureSheet(
             allTags = allTags,
             onSave = { photoPath, tagIds ->
-                vm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
+                vm.createSmartDraft(photoPath = photoPath, tagIds = tagIds)
             },
             onDismiss = { showCaptureSheet = false }
         )
