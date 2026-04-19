@@ -8,7 +8,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
-import com.google.ai.edge.litertlm.contents.text
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -95,7 +95,7 @@ object AiEngineManager {
 
         currentEngine.createConversation(conversationConfig).use { conversation ->
             val response = conversation.sendMessage(userMessage)
-            response.text
+            response.toString()
         }
     }
 }
