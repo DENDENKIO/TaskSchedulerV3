@@ -6,7 +6,9 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.contents.text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -86,14 +88,14 @@ object AiEngineManager {
             systemInstruction = Contents.of(systemPrompt),
             samplerConfig = SamplerConfig(
                 topK = 5,
-                topP = 0.9f,
-                temperature = 0.3f
+                topP = 0.9,
+                temperature = 0.3
             )
         )
 
         currentEngine.createConversation(conversationConfig).use { conversation ->
             val response = conversation.sendMessage(userMessage)
-            response.text ?: ""
+            response.text
         }
     }
 }

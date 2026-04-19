@@ -35,10 +35,16 @@ android {
     buildFeatures {
         compose = true
     }
-    kotlinOptions {
-        jvmTarget = "11"
+
+}
+
+// ★ 新しいcompilerOptions DSL（android { } の外側に配置）
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
+
 
 dependencies {
     implementation(libs.androidx.core.ktx)
