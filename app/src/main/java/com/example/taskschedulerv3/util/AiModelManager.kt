@@ -1,16 +1,20 @@
 package com.example.taskschedulerv3.util
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 
 object AiModelManager {
 
+    private const val TAG = "AiModelManager"
     private const val MODEL_DIR = "ai_model"
     private const val MODEL_FILENAME = "gemma3-1b-it-int4.litertlm"
 
@@ -44,7 +48,6 @@ object AiModelManager {
         return File(dir, MODEL_FILENAME)
     }
 
-    /** LiteRT-LM Engine に渡すモデルの絶対パス */
     fun getModelPath(context: Context): String {
         return getModelFile(context).absolutePath
     }
@@ -54,59 +57,117 @@ object AiModelManager {
         return if (file.exists()) file.length() / (1024 * 1024) else 0
     }
 
+    /**
+     * リダイレクトを手動で追跡する接続ヘルパー。
+     * Hugging Face は複数回のリダイレクト（302/303/307）を返すことがある。
+     */
+    private fun openConnectionWithRedirects(urlStr: String, maxRedirects: Int = 10): HttpURLConnection {
+        var currentUrl = urlStr
+        var redirectCount = 0
+
+        while (redirectCount < maxRedirects) {
+            val url = URL(currentUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 60_000
+            connection.readTimeout = 60_000
+            connection.instanceFollowRedirects = false // 手動でリダイレクト追跡
+            connection.setRequestProperty("User-Agent", "TaskSchedulerV3/1.0")
+            connection.connect()
+
+            val responseCode = connection.responseCode
+            Log.d(TAG, "URL: $currentUrl -> HTTP $responseCode")
+
+            if (responseCode in 300..399) {
+                val location = connection.getHeaderField("Location")
+                connection.disconnect()
+                if (location.isNullOrBlank()) {
+                    throw Exception("リダイレクト先が見つかりません (HTTP $responseCode)")
+                }
+                currentUrl = if (location.startsWith("http")) location
+                             else URL(URL(currentUrl), location).toString()
+                redirectCount++
+                Log.d(TAG, "リダイレクト ($redirectCount): $currentUrl")
+            } else {
+                return connection
+            }
+        }
+        throw Exception("リダイレクト回数が上限($maxRedirects)を超えました")
+    }
+
     suspend fun downloadModel(context: Context): Boolean = withContext(Dispatchers.IO) {
         try {
             _state.value = ModelState.Downloading(0)
+            Log.d(TAG, "ダウンロード開始: $MODEL_DOWNLOAD_URL")
 
             val file = getModelFile(context)
             val tmpFile = File(file.parent, "${file.name}.tmp")
 
-            val url = URL(MODEL_DOWNLOAD_URL)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 30_000
-            connection.readTimeout = 30_000
-            connection.instanceFollowRedirects = true
-            connection.connect()
+            val connection = openConnectionWithRedirects(MODEL_DOWNLOAD_URL)
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                _state.value = ModelState.Error(
-                    "ダウンロード失敗 (HTTP ${connection.responseCode})"
-                )
+            val responseCode = connection.responseCode
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                val errorBody = try {
+                    connection.errorStream?.bufferedReader()?.readText()?.take(200) ?: ""
+                } catch (_: Exception) { "" }
+                connection.disconnect()
+
+                val errorMsg = when (responseCode) {
+                    401, 403 -> "アクセス拒否 (HTTP $responseCode)。Hugging Faceのライセンス同意が必要な可能性があります。"
+                    404 -> "モデルが見つかりません (HTTP 404)"
+                    else -> "ダウンロード失敗 (HTTP $responseCode): $errorBody"
+                }
+                Log.e(TAG, errorMsg)
+                _state.value = ModelState.Error(errorMsg)
                 return@withContext false
             }
 
             val totalSize = connection.contentLengthLong
+            Log.d(TAG, "ファイルサイズ: ${totalSize / (1024 * 1024)} MB")
 
             connection.inputStream.use { input ->
                 tmpFile.outputStream().use { output ->
-                    val buffer = ByteArray(8192)
+                    val buffer = ByteArray(16384)
                     var downloaded = 0L
                     var bytesRead: Int
+                    var lastProgressUpdate = 0L
 
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         output.write(buffer, 0, bytesRead)
                         downloaded += bytesRead
-                        if (totalSize > 0) {
-                            _state.value = ModelState.Downloading(
-                                (downloaded * 100 / totalSize).toInt()
-                            )
+
+                        // 進捗更新を500msごとに制限（UIスレッド負荷軽減）
+                        val now = System.currentTimeMillis()
+                        if (totalSize > 0 && now - lastProgressUpdate > 500) {
+                            val progress = (downloaded * 100 / totalSize).toInt()
+                            _state.value = ModelState.Downloading(progress)
+                            lastProgressUpdate = now
                         }
                     }
                 }
             }
+            connection.disconnect()
 
-            // ダウンロード完了: 一時ファイルをリネーム
+            // ダウンロード完了: サイズ検証
+            if (tmpFile.length() < 100_000) {
+                tmpFile.delete()
+                _state.value = ModelState.Error("ダウンロードファイルが小さすぎます")
+                return@withContext false
+            }
+
             if (file.exists()) file.delete()
             tmpFile.renameTo(file)
 
+            Log.d(TAG, "ダウンロード完了: ${file.length() / (1024 * 1024)} MB")
             _state.value = ModelState.Ready
             true
         } catch (e: Exception) {
-            e.printStackTrace()
-            val tmpFile = File(getModelFile(context).parent, "${MODEL_FILENAME}.tmp")
-            if (tmpFile.exists()) tmpFile.delete()
+            Log.e(TAG, "ダウンロードエラー", e)
+            try {
+                val tmpFile = File(getModelFile(context).parent, "${MODEL_FILENAME}.tmp")
+                if (tmpFile.exists()) tmpFile.delete()
+            } catch (_: Exception) {}
 
-            _state.value = ModelState.Error("ダウンロード失敗: ${e.localizedMessage}")
+            _state.value = ModelState.Error("ダウンロード失敗: ${e.localizedMessage ?: "不明なエラー"}")
             false
         }
     }
