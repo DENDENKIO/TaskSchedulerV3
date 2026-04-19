@@ -12,6 +12,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -98,7 +100,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             onDismissRequest = { showAiOnConfirmDialog = false },
             title = { Text("AIモデルのダウンロード") },
             text = {
-                Text("AI機能を使用するには、約1GBのモデルデータをダウンロードする必要があります。\n\nWi-Fi環境でのダウンロードを推奨します。")
+                Text("AI機能を使用するには、約529MBのモデルデータをダウンロードする必要があります。\n\nWi-Fi環境でのダウンロードを推奨します。")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -238,6 +240,22 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // --- 追加: トークン入力フィールド ---
+            val hfToken by vm.hfToken.collectAsState()
+            var isTokenVisible by remember { mutableStateOf(false) }
+
+            OutlinedTextField(
+                value = hfToken,
+                onValueChange = { vm.setHfToken(it) },
+                label = { Text("Hugging Face Access Token (hf_...)") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                visualTransformation = if (isTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                placeholder = { Text("hf_xxxxxxxxxxxxxxxxx") },
+                supportingText = { Text("Gatedモデルのダウンロードに必要です") }
+            )
+
             ListItem(
                 headlineContent = {
                     Text(
@@ -257,15 +275,16 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             ListItem(
                 headlineContent = { Text("AI機能を使用する") },
                 supportingContent = {
-                    when (aiModelState) {
+                    val currentState = aiModelState // 状態をローカル変数に固定（重要）
+                    when (currentState) {
                         is AiModelManager.ModelState.NotDownloaded ->
                             Text(
-                                "ONにするとモデル（約1GB）をダウンロードします",
+                                "ONにするとモデル（約529MB）をダウンロードします",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         is AiModelManager.ModelState.Downloading ->
                             Text(
-                                "ダウンロード中... ${(aiModelState as AiModelManager.ModelState.Downloading).progress}%",
+                                "ダウンロード中... ${currentState.progress}%",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         is AiModelManager.ModelState.Ready ->
@@ -275,7 +294,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
                             )
                         is AiModelManager.ModelState.Error ->
                             Text(
-                                (aiModelState as AiModelManager.ModelState.Error).message,
+                                currentState.message,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error
                             )
@@ -296,11 +315,12 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
                 }
             )
 
-            if (aiModelState is AiModelManager.ModelState.Downloading) {
+            // --- 修正: クラッシュ防止版プログレスバー ---
+            val currentStateForBar = aiModelState
+            if (currentStateForBar is AiModelManager.ModelState.Downloading) {
+                val progressValue = currentStateForBar.progress / 100f
                 LinearProgressIndicator(
-                    progress = {
-                        (aiModelState as AiModelManager.ModelState.Downloading).progress / 100f
-                    },
+                    progress = { progressValue },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)

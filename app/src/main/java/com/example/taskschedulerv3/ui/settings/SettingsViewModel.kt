@@ -39,6 +39,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             else AiModelManager.ModelState.NotDownloaded
         )
 
+    private val _hfToken = MutableStateFlow("")
+    val hfToken = _hfToken.asStateFlow()
+
     private val _exportImportState = MutableStateFlow<ExportImportState>(ExportImportState.Idle)
     val exportImportState: StateFlow<ExportImportState> = _exportImportState.asStateFlow()
 
@@ -46,11 +49,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         ThemePreferences.setThemeMode(getApplication(), mode)
     }
 
+    fun setHfToken(token: String) {
+        _hfToken.value = token
+    }
+
     fun setAiEnabled(enabled: Boolean) = viewModelScope.launch {
         val app = getApplication<Application>()
         if (enabled && !AiModelManager.checkModelExists(app)) {
             AiPreferences.setAiEnabled(app, true)
-            AiModelManager.downloadModel(app)
+            AiModelManager.downloadModel(app, _hfToken.value)
         } else {
             AiPreferences.setAiEnabled(app, enabled)
         }

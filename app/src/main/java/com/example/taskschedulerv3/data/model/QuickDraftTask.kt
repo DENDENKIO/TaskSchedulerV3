@@ -18,5 +18,10 @@ data class QuickDraftTask(
     val updatedAt: Long = System.currentTimeMillis(),
     val status: String = "DRAFT",  // DRAFT / CONVERTED / DISCARDED
     /** カンマ区切りのタグID文字列。例: "1,3,7" */
-    val tagIds: String? = null
+    val tagIds: String? = null,
+    
+    // AI解析結果を保持するフィールド
+    val startDate: String? = null,
+    val startTime: String? = null,
+    val endTime: String? = null
 )

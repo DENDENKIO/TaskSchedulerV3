@@ -22,7 +22,7 @@ import com.example.taskschedulerv3.data.model.*
         QuickDraftTask::class,
         RoadmapStep::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -127,6 +127,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration: v8 -> v9: add date/time columns to quick_draft_tasks
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE quick_draft_tasks ADD COLUMN startDate TEXT")
+                database.execSQL("ALTER TABLE quick_draft_tasks ADD COLUMN startTime TEXT")
+                database.execSQL("ALTER TABLE quick_draft_tasks ADD COLUMN endTime TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -134,7 +143,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "task_scheduler.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build().also { INSTANCE = it }
             }
     }

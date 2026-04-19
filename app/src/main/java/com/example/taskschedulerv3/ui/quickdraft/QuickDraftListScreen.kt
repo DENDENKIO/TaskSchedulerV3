@@ -31,6 +31,9 @@ import com.example.taskschedulerv3.util.PhotoFileManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.taskschedulerv3.util.AiPreferences
+import com.example.taskschedulerv3.util.AiModelManager
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,10 +144,17 @@ fun QuickDraftListScreen(
 
     if (showCaptureSheet) {
         val allTags by listVm.allTags.collectAsState()
+        val context = LocalContext.current
+        val aiEnabled by AiPreferences.getAiEnabled(context).collectAsState(initial = false)
+        val modelReady = AiModelManager.checkModelExists(context)
+        val useAi = aiEnabled && modelReady
+
         QuickDraftCaptureSheet(
+            viewModel = vm,
             allTags = allTags,
-            onSave = { photoPath, tagIds ->
-                vm.createSmartDraft(photoPath = photoPath, tagIds = tagIds)
+            useAi = useAi,
+            onSaveFallback = { photoPath, tagIds ->
+                vm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
             },
             onDismiss = { showCaptureSheet = false }
         )

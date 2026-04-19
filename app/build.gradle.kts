@@ -69,8 +69,8 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
-    // LiteRT-LM: オンデバイスLLM推論
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
+    // MediaPipe GenAI: オンデバイスLLM推論 (.litertlm / .task)
+    implementation("com.google.mediapipe:tasks-genai:0.10.14")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

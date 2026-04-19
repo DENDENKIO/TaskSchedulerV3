@@ -1,17 +1,16 @@
 package com.example.taskschedulerv3.ui.quickdraft
 
 import android.app.Application
+import android.content.Context
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.QuickDraftTask
 import com.example.taskschedulerv3.data.repository.QuickDraftRepository
-import com.example.taskschedulerv3.util.AiEngineManager
-import com.example.taskschedulerv3.util.AiModelManager
-import com.example.taskschedulerv3.util.AiPreferences
-import com.example.taskschedulerv3.util.OcrTextParser
+import com.example.taskschedulerv3.util.AiTextExtractor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
@@ -20,19 +19,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import org.json.JSONObject
+import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
-
-    companion object {
-        private const val TAG = "QuickDraftVM"
-    }
 
     private val db = AppDatabase.getInstance(app)
     val repo = QuickDraftRepository(
@@ -48,115 +44,11 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
 
     val convertSuccess = MutableStateFlow(false)
 
-    private val _isProcessing = MutableStateFlow(false)
-    val isProcessing = _isProcessing.asStateFlow()
+    private val _isAiProcessing = MutableStateFlow(false)
+    val isAiProcessing = _isAiProcessing.asStateFlow()
 
     /**
-     * AI ON/OFFに応じた仮登録メイン関数。
-     * 外部（MainActivity、QuickDraftListScreen）からはこのメソッドを呼ぶ。
-     */
-    fun createSmartDraft(
-        photoPath: String?,
-        tagIds: List<Int> = emptyList()
-    ) = viewModelScope.launch(Dispatchers.IO) {
-        val context = getApplication<Application>()
-        val aiEnabled = AiPreferences.getAiEnabled(context).first()
-        val modelReady = AiModelManager.checkModelExists(context)
-
-        if (aiEnabled && modelReady) {
-            createFromCameraWithAi(photoPath, tagIds)
-        } else {
-            createFromCamera(photoPath = photoPath, tagIds = tagIds)
-        }
-    }
-
-    /**
-     * AI ON時: OCR → LLM解析 → 自動タイトル/日付/要約で仮登録
-     */
-    private suspend fun createFromCameraWithAi(
-        photoPath: String?,
-        tagIds: List<Int>
-    ) {
-        _isProcessing.value = true
-        try {
-            val context = getApplication<Application>()
-            var ocrText: String? = null
-
-            // ① ML Kit OCR で文字認識
-            if (photoPath != null) {
-                val bitmap = BitmapFactory.decodeFile(photoPath)
-                if (bitmap != null) {
-                    val image = InputImage.fromBitmap(bitmap, 0)
-                    val result = recognizer.process(image).await()
-                    ocrText = result.text.ifEmpty { null }
-                }
-            }
-
-            // OCRテキストが取れなかった場合 → 通常登録へフォールバック
-            if (ocrText.isNullOrBlank()) {
-                Log.d(TAG, "OCRテキストが空のため通常登録にフォールバック")
-                insertDraft(
-                    title = generateFallbackTitle(),
-                    description = null,
-                    photoPath = photoPath,
-                    ocrText = null,
-                    tagIds = tagIds
-                )
-                return
-            }
-
-            // ② LLM Engine をロード（未ロードの場合のみ）
-            if (!AiEngineManager.isLoaded()) {
-                Log.d(TAG, "AI Engine ロード開始...")
-                AiEngineManager.loadEngine(context)
-                Log.d(TAG, "AI Engine ロード完了")
-            }
-
-            // ③ LLM に OCR テキストを渡して解析
-            Log.d(TAG, "LLM解析開始: ${ocrText.take(100)}...")
-            val llmResponse = AiEngineManager.analyze(ocrText)
-            Log.d(TAG, "LLM応答: ${llmResponse.take(200)}")
-
-            // ④ LLM応答をパース
-            var parsed = OcrTextParser.parseFromLlmResponse(llmResponse)
-
-            // LLMパース失敗時 → 正規表現フォールバック
-            if (parsed == null || (parsed.title == null && parsed.date == null)) {
-                Log.d(TAG, "LLMパース失敗。正規表現フォールバックを使用")
-                parsed = OcrTextParser.fallbackParseFromOcr(ocrText)
-            }
-
-            // ⑤ パース結果でドラフト作成
-            val title = parsed.title ?: generateFallbackTitle()
-            val description = buildDescription(parsed, ocrText)
-
-            insertDraft(
-                title = title,
-                description = description,
-                photoPath = photoPath,
-                ocrText = ocrText,
-                tagIds = tagIds
-            )
-
-            Log.d(TAG, "AI仮登録完了: title=$title, date=${parsed.date}")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "AI処理中にエラー発生。通常登録にフォールバック", e)
-            // 全体失敗 → 従来の仮登録
-            insertDraft(
-                title = generateFallbackTitle(),
-                description = null,
-                photoPath = photoPath,
-                ocrText = null,
-                tagIds = tagIds
-            )
-        } finally {
-            _isProcessing.value = false
-        }
-    }
-
-    /**
-     * 既存: 通常の仮登録（AI OFF時 / フォールバック）
+     * 通常の仮登録保存（AIオフ時）
      */
     fun createFromCamera(
         photoPath: String? = null,
@@ -172,14 +64,85 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    // ===== ヘルパー関数 =====
+    /**
+     * AIを使用して写真から予定を自動抽出し、仮登録を作成する
+     */
+    fun createFromCameraWithAi(
+        context: Context,
+        photoPath: String,
+        tagIds: List<Int>
+    ) = viewModelScope.launch(Dispatchers.IO) {
+        _isAiProcessing.value = true
+        
+        var finalTitle = generateFallbackTitle()
+        var finalOcrText = ""
+        var aiDate: String? = null
+        var aiStartTime: String? = null
+        var aiEndTime: String? = null
+        var aiSummary: String? = null
+        
+        try {
+            // 1. ML KitでOCR実行
+            val file = File(photoPath)
+            if (file.exists()) {
+                val bitmap = BitmapFactory.decodeFile(photoPath)
+                if (bitmap != null) {
+                    val image = InputImage.fromBitmap(bitmap, 0)
+                    val result = recognizer.process(image).await()
+                    finalOcrText = result.text
+                    Log.d("QuickDraftVM", "OCR Result: ${finalOcrText.take(100)}...")
+                }
+            }
+
+            // 2. AI推論の実行
+            if (finalOcrText.isNotBlank()) {
+                val jsonResult = AiTextExtractor.extractScheduleInfo(finalOcrText)
+                
+                // 3. JSONパース
+                if (!jsonResult.isNullOrBlank()) {
+                    try {
+                        val json = JSONObject(jsonResult)
+                        val title = json.optString("title", "")
+                        if (title.isNotBlank()) finalTitle = title
+                        
+                        aiDate = json.optString("date", "").takeIf { it.isNotBlank() && it != "null" }
+                        aiStartTime = json.optString("start_time", "").takeIf { it.isNotBlank() && it != "null" }
+                        aiEndTime = json.optString("end_time", "").takeIf { it.isNotBlank() && it != "null" }
+                        aiSummary = json.optString("summary", "").takeIf { it.isNotBlank() && it != "null" }
+                        
+                        Log.d("QuickDraftVM", "AI Parsed Data: $json")
+                    } catch (e: Exception) {
+                        Log.e("QuickDraftVM", "JSON Parse Error", e)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("QuickDraftVM", "AI Processing Error", e)
+        } finally {
+            // 4. DB保存
+            insertDraft(
+                title = finalTitle,
+                description = aiSummary,
+                photoPath = photoPath,
+                ocrText = finalOcrText,
+                tagIds = tagIds,
+                startDate = aiDate,
+                startTime = aiStartTime,
+                endTime = aiEndTime
+            )
+            _isAiProcessing.value = false
+        }
+    }
 
     private suspend fun insertDraft(
         title: String,
         description: String?,
         photoPath: String?,
         ocrText: String?,
-        tagIds: List<Int>
+        tagIds: List<Int>,
+        startDate: String? = null,
+        startTime: String? = null,
+        endTime: String? = null
     ) {
         val tagIdsStr = if (tagIds.isEmpty()) null else tagIds.joinToString(",")
         val draft = QuickDraftTask(
@@ -188,7 +151,10 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
             photoPath = photoPath,
             ocrText = ocrText,
             status = "DRAFT",
-            tagIds = tagIdsStr
+            tagIds = tagIdsStr,
+            startDate = startDate,
+            startTime = startTime,
+            endTime = endTime
         )
         repo.insert(draft)
     }
@@ -196,31 +162,6 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
     private fun generateFallbackTitle(): String {
         val now = LocalDateTime.now()
         return now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) + " 仮登録"
-    }
-
-    /**
-     * パース結果から description を組み立てる。
-     * 日付・時刻情報 + 要約をまとめてメモとして保存。
-     */
-    private fun buildDescription(parsed: OcrTextParser.ParsedInfo, ocrText: String): String? {
-        val parts = mutableListOf<String>()
-
-        if (parsed.date != null) {
-            var dateInfo = "📅 日付: ${parsed.date}"
-            if (parsed.startTime != null) {
-                dateInfo += "  ${parsed.startTime}"
-                if (parsed.endTime != null) {
-                    dateInfo += "〜${parsed.endTime}"
-                }
-            }
-            parts.add(dateInfo)
-        }
-
-        if (parsed.summary != null) {
-            parts.add("📝 内容:\n${parsed.summary}")
-        }
-
-        return if (parts.isEmpty()) null else parts.joinToString("\n\n")
     }
 
     fun updateDraft(draft: QuickDraftTask) = viewModelScope.launch {
@@ -245,7 +186,5 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         super.onCleared()
         recognizer.close()
-        // 注意: AiEngineManager はシングルトンなのでここでは解放しない。
-        // 設定画面のAI OFF時やアプリ終了時に解放する。
     }
 }

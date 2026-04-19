@@ -18,6 +18,7 @@ import com.example.taskschedulerv3.ui.indefinite.IndefiniteTaskScreen
 import com.example.taskschedulerv3.ui.quickdraft.QuickDraftListScreen
 import com.example.taskschedulerv3.ui.quickdraft.QuickDraftEditScreen
 import com.example.taskschedulerv3.ui.TaskFlowUiViewModel
+import com.example.taskschedulerv3.ui.aichat.AiChatScreen
 
 
 sealed class Screen(val route: String) {
@@ -46,6 +47,7 @@ sealed class Screen(val route: String) {
         fun createRoute(taskId: Int) = "roadmap_edit/$taskId"
     }
     object CompletedTasks : Screen("completed_tasks")
+    object AiChat : Screen("ai_chat")
 
 }
 
@@ -117,6 +119,9 @@ fun AppNavGraph(
         }
         composable(Screen.CompletedTasks.route) {
             com.example.taskschedulerv3.ui.completed.CompletedTasksScreen(navController = navController)
+        }
+        composable(Screen.AiChat.route) {
+            AiChatScreen(navController = navController)
         }
     }
 }

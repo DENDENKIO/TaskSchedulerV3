@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import com.example.taskschedulerv3.ui.quickdraft.QuickDraftCaptureSheet
 import com.example.taskschedulerv3.ui.quickdraft.QuickDraftViewModel
 import com.example.taskschedulerv3.ui.schedulelist.ScheduleListViewModel
+import com.example.taskschedulerv3.util.AiPreferences
+import com.example.taskschedulerv3.util.AiModelManager
 
 class MainActivity : ComponentActivity() {
     private val activityUiVm: TaskFlowUiViewModel by viewModels()
@@ -236,11 +238,19 @@ fun TaskSchedulerApp() {
             val listVm: ScheduleListViewModel = viewModel()
             val draftVm: QuickDraftViewModel = viewModel()
             val allTags by listVm.allTags.collectAsState()
+            
+            // AI設定を取得
+            val aiEnabled by AiPreferences.getAiEnabled(context).collectAsState(initial = false)
+            val modelReady = AiModelManager.checkModelExists(context)
+            val useAi = aiEnabled && modelReady
+
             QuickDraftCaptureSheet(
+                viewModel = draftVm,
                 allTags = allTags,
                 autoMode = uiVm.quickDraftAutoMode,
-                onSave = { photoPath, tagIds ->
-                    draftVm.createSmartDraft(photoPath = photoPath, tagIds = tagIds)
+                useAi = useAi,
+                onSaveFallback = { photoPath, tagIds ->
+                    draftVm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
                 },
                 onDismiss = { uiVm.closeQuickDraftSheet() }
             )

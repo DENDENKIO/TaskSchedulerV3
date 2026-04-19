@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -98,6 +99,9 @@ fun ScheduleListScreenHighDensity(
                 }
             },
             actions = {
+                IconButton(onClick = { navController.navigate(Screen.AiChat.route) }) {
+                    Icon(Icons.Default.Chat, "AIアシスタント", tint = MaterialTheme.colorScheme.primary)
+                }
                 IconButton(onClick = { navController.navigate(Screen.CompletedTasks.route) }) {
                     Icon(Icons.Default.History, "完了した予定")
                 }
