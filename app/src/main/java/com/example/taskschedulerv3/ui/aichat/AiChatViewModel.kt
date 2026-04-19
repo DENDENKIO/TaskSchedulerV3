@@ -6,11 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.data.repository.TaskRepository
+import com.example.taskschedulerv3.util.AiTextExtractor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -61,49 +63,66 @@ class AiChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 第一段階：ルールベースでの意図解析とDB検索
+     * 【第2段階】オンデバイスLLMを使用した意図解析とDB検索
      */
     private suspend fun processQuery(query: String): String {
-        val today = LocalDate.now()
-        var targetDate: LocalDate? = null
-        var dateLabel = ""
+        // AIエンジンの初期化（すでに初期化済みならスキップされる）
+        AiTextExtractor.initialize(getApplication())
 
-        // 軽量なルールベース抽出
-        if (query.contains("今日")) {
-            targetDate = today
-            dateLabel = "今日"
-        } else if (query.contains("明日")) {
-            targetDate = today.plusDays(1)
-            dateLabel = "明日"
-        } else if (query.contains("明後日")) {
-            targetDate = today.plusDays(2)
-            dateLabel = "明後日"
-        }
-
-        if (targetDate == null) {
-            return "すみません、まだ「今日」「明日」「明後日」の予定検索にしか対応していません。いつの予定か教えていただけますか？"
-        }
-
-        // DBからタスクを取得
-        val targetDateStr = targetDate.format(DateTimeFormatter.ISO_LOCAL_DATE) // "yyyy-MM-dd"
-        // Flow を first() で1回だけ取得
-        val allTasks = taskRepo.getAll().first() 
+        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         
+        // LLMに意図解析を依頼
+        val jsonResult = AiTextExtractor.parseChatIntent(query, todayStr)
+        
+        var targetDateStr = ""
+        var keyword = ""
+
+        // LLMのJSONレスポンスをパース
+        if (!jsonResult.isNullOrBlank()) {
+            try {
+                val json = JSONObject(jsonResult)
+                targetDateStr = json.optString("target_date", "")
+                keyword = json.optString("keyword", "")
+            } catch (e: Exception) {
+                return "すみません、質問の解析に失敗しました。もう少しシンプルに聞いてみてください。"
+            }
+        }
+
+        if (targetDateStr.isBlank() && keyword.isBlank()) {
+            return "いつの予定か、または何の予定か教えていただけますか？（例：「明日の予定」「会議の予定」）"
+        }
+
+        // DBから検索
+        val allTasks = taskRepo.getAll().first()
         val matchedTasks = allTasks.filter { task ->
-            task.startDate == targetDateStr && !task.isCompleted
-        }.sortedBy { it.startTime ?: "23:59" } // 時間順にソート
+            val matchDate = targetDateStr.isBlank() || task.startDate == targetDateStr
+            val matchKeyword = keyword.isBlank() || (
+                task.title.contains(keyword, ignoreCase = true) || 
+                task.description?.contains(keyword, ignoreCase = true) == true
+            )
+            !task.isCompleted && !task.isDeleted && matchDate && matchKeyword
+        }.sortedBy { it.startTime ?: "23:59" }
 
         // 返答文の組み立て
         if (matchedTasks.isEmpty()) {
-            return "${dateLabel}の予定は入っていません。ゆっくり休めそうですね！"
+            return "該当する予定は見は見つかりませんでした。"
         }
 
+        val dateLabel = if (targetDateStr.isNotBlank()) "${targetDateStr}の" else ""
+        val keywordLabel = if (keyword.isNotBlank()) "「${keyword}」に関する" else ""
+
         val sb = StringBuilder()
-        sb.append("${dateLabel}は **${matchedTasks.size}件** の予定があります。\n\n")
+        sb.append("${dateLabel}${keywordLabel}予定は **${matchedTasks.size}件** あります。\n\n")
         matchedTasks.forEach { task ->
             val time = task.startTime ?: "終日"
             sb.append("・ $time : ${task.title}\n")
         }
         return sb.toString()
+    }
+
+    // ViewModelが破棄される時にAIをメモリから解放する
+    override fun onCleared() {
+        super.onCleared()
+        AiTextExtractor.close()
     }
 }
