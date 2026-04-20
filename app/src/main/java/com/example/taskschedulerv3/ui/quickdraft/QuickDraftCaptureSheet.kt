@@ -3,32 +3,35 @@ package com.example.taskschedulerv3.ui.quickdraft
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,18 +40,24 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.ui.settings.SettingsViewModel
-import com.example.taskschedulerv3.util.AiEngineManager
 import com.example.taskschedulerv3.util.PhotoFileManager
+import kotlinx.coroutines.launch
 import java.io.File
 
+/**
+ * 一括仮登録シート。
+ * - カメラ連続撮影: 1枚撮影→即座にカメラ再起動を繰り返し、「処理開始」で一括送信
+ * - ギャラリー複数選択: PickMultipleVisualMedia で複数選択
+ * - 処理はバックグラウンドに委譲してシートは即閉じ
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickDraftCaptureSheet(
@@ -56,61 +65,53 @@ fun QuickDraftCaptureSheet(
     settingsVm: SettingsViewModel = viewModel(),
     allTags: List<Tag>,
     autoMode: Boolean = false,
-    onNavigateToEdit: (Int) -> Unit = {}, // 既存のナビゲーション用コールバックを保持
+    onNavigateToEdit: (Int) -> Unit = {},
     onSaveFallback: (photoPath: String?, tagIds: List<Int>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val isAiProcessing by viewModel.isAiProcessing.collectAsState()
+    val scope = rememberCoroutineScope()
     val useAi by settingsVm.aiEnabled.collectAsState()
-    val navigateToDraftId by viewModel.navigateToDraftId.collectAsState()
 
-    var showCloseConfirmation by remember { mutableStateOf(false) }
-    var sheetHeight by remember { mutableFloatStateOf(0f) }
-
-    var capturedPhotoPath by remember { mutableStateOf<String?>(null) }
-    var capturedPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    // 撮影済み写真パスのリスト
+    var capturedPaths by remember { mutableStateOf(listOf<String>()) }
     var tempCameraFile by remember { mutableStateOf<File?>(null) }
     var selectedTagIds by remember { mutableStateOf(setOf<Int>()) }
+    var sheetHeight by remember { mutableFloatStateOf(0f) }
 
-    // 古い写真を削除して新しい写真をセットする関数
-    fun setAndCleanUpPhoto(newPath: String?) {
-        if (capturedPhotoPath != null && capturedPhotoPath != newPath) {
-            try {
-                File(capturedPhotoPath!!).delete()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        capturedPhotoPath = newPath
-        capturedPhotoUri = newPath?.let { PhotoFileManager.pathToUri(it) }
-    }
+    // autoMode の場合、撮影→即処理→閉じる（旧動作互換）
+    var autoModeTriggered by remember { mutableStateOf(false) }
 
-    // AIエンジンの初期化
-    LaunchedEffect(useAi) {
-        if (useAi && !AiEngineManager.isLoaded()) {
-            AiEngineManager.loadEngine(context)
-        }
-    }
-
-    // ─── カメラ起動 ───
+    // ─── カメラ ───
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
             tempCameraFile?.let { file ->
                 val path = PhotoFileManager.saveResizedPhotoFromFile(context, file)
-                setAndCleanUpPhoto(path)
                 tempCameraFile = null
 
-                if (autoMode) {
-                    if (useAi && path != null) {
-                        viewModel.createFromCameraWithAi(context, path, emptyList())
+                if (path != null) {
+                    if (autoMode && !autoModeTriggered) {
+                        // autoMode: 1枚撮って即処理して閉じる
+                        autoModeTriggered = true
+                        viewModel.enqueueBatch(
+                            context = context,
+                            photoPaths = listOf(path),
+                            tagIds = selectedTagIds.toList(),
+                            useAi = useAi
+                        )
+                        Toast.makeText(context, "バックグラウンドで処理中...", Toast.LENGTH_SHORT).show()
+                        onDismiss()
                     } else {
-                        onSaveFallback(path, emptyList())
+                        // 通常モード: リストに追加して続行
+                        capturedPaths = capturedPaths + path
                     }
                 }
             }
         } else {
-            if (autoMode) onDismiss()
+            // カメラキャンセル
+            if (autoMode && capturedPaths.isEmpty()) {
+                onDismiss()
+            }
         }
     }
 
@@ -122,10 +123,15 @@ fun QuickDraftCaptureSheet(
         }
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        uri?.let {
-            val path = PhotoFileManager.saveResizedPhoto(context, it)
-            setAndCleanUpPhoto(path)
+    // ─── ギャラリー（複数選択） ───
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            val newPaths = uris.mapNotNull { uri ->
+                PhotoFileManager.saveResizedPhoto(context, uri)
+            }
+            capturedPaths = capturedPaths + newPaths
         }
     }
 
@@ -140,87 +146,71 @@ fun QuickDraftCaptureSheet(
         }
     }
 
+    // autoMode時にカメラを自動起動
     LaunchedEffect(autoMode) {
-        if (autoMode && capturedPhotoUri == null) launchCamera()
+        if (autoMode && capturedPaths.isEmpty() && !autoModeTriggered) {
+            launchCamera()
+        }
     }
-    
-    // ==========================================
-    // 修正：シートを安全に閉じるための仕組み（アニメーションを待ってから消す）
-    // ==========================================
-    val scope = rememberCoroutineScope()
-    var forceClose by remember { mutableStateOf(false) }
 
-    val draftSheetStateRef = remember { mutableStateOf<SheetState?>(null) }
+    // ─── シート状態管理 ───
+    var forceClose by remember { mutableStateOf(false) }
     val draftSheetState = rememberModalBottomSheetState(
         confirmValueChange = { newValue ->
-            if (newValue == SheetValue.Hidden && !isAiProcessing && !forceClose) {
-                val currentOffset = draftSheetStateRef.value?.requireOffset() ?: 0f
-                if (currentOffset > sheetHeight * 0.8f) {
-                    showCloseConfirmation = true
-                }
-                false
+            if (newValue == SheetValue.Hidden && !forceClose) {
+                // 写真がある場合は確認
+                capturedPaths.isEmpty()
             } else {
-                !isAiProcessing
+                true
             }
         }
     )
-    SideEffect { draftSheetStateRef.value = draftSheetState }
 
-    // アニメーションを完了させてから安全に破棄する関数
     fun closeSheetSafely() {
         scope.launch {
             forceClose = true
             try {
                 draftSheetState.hide()
-            } catch (e: Exception) {
-                // ignore
-            } finally {
+            } catch (_: Exception) {}
+            finally {
                 onDismiss()
             }
         }
     }
 
-    // 保存完了を検知してシートを閉じる
-    LaunchedEffect(isAiProcessing) {
-        if (!isAiProcessing && capturedPhotoPath != null && autoMode) {
+    /**
+     * バッチ処理を開始してシートを閉じる。
+     */
+    fun startBatchAndClose() {
+        if (capturedPaths.isEmpty()) {
             closeSheetSafely()
+            return
         }
-    }
-
-    // 編集画面へのナビゲーション監視
-    LaunchedEffect(navigateToDraftId) {
-        navigateToDraftId?.let { draftId ->
-            onNavigateToEdit(draftId) // 編集画面へ自動遷移
-            viewModel.clearNavigation()
-            closeSheetSafely()
-        }
-    }
-
-    if (showCloseConfirmation) {
-        AlertDialog(
-            onDismissRequest = { 
-                showCloseConfirmation = false 
-                scope.launch { draftSheetState.show() } // 状態リセット
-            },
-            title = { Text("入力内容の破棄") },
-            text = { Text("仮登録を中断して閉じますか？") },
-            confirmButton = {
-                TextButton(onClick = { showCloseConfirmation = false; closeSheetSafely() }) { 
-                    Text("破棄", color = MaterialTheme.colorScheme.error) 
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { 
-                    showCloseConfirmation = false 
-                    scope.launch { draftSheetState.show() } // 状態リセット
-                }) { Text("キャンセル") }
-            }
+        viewModel.enqueueBatch(
+            context = context,
+            photoPaths = capturedPaths,
+            tagIds = selectedTagIds.toList(),
+            useAi = useAi
         )
+        Toast.makeText(
+            context,
+            "${capturedPaths.size}件をバックグラウンドで処理中...",
+            Toast.LENGTH_SHORT
+        ).show()
+        // キャプチャ済みリストをクリアしてからシートを閉じる
+        capturedPaths = emptyList()
+        closeSheetSafely()
     }
+
+    // autoMode以外のみシートを表示
+    if (autoMode && autoModeTriggered) return
 
     ModalBottomSheet(
-        onDismissRequest = { 
-            if (!isAiProcessing) showCloseConfirmation = true 
+        onDismissRequest = {
+            if (capturedPaths.isEmpty()) {
+                onDismiss()
+            }
+            // 写真がある場合はconfirmValueChangeで制御
         },
         sheetState = draftSheetState,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
@@ -237,129 +227,153 @@ fun QuickDraftCaptureSheet(
                     .padding(bottom = 36.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // ─── タイトルと保存ボタン ───
+                // ─── ヘッダー ───
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        if (useAi) "仮登録 (AI解析ON ✨)" else "仮登録",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (useAi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                    )
+                    Column {
+                        Text(
+                            if (useAi) "一括仮登録 (AI解析ON)" else "一括仮登録",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (useAi) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (capturedPaths.isNotEmpty()) {
+                            Text(
+                                "${capturedPaths.size}枚選択中",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    // 処理開始ボタン
                     Button(
-                        enabled = !isAiProcessing,
-                        onClick = {
-                            if (useAi && capturedPhotoPath != null) {
-                                viewModel.createFromCameraWithAi(context, capturedPhotoPath!!, selectedTagIds.toList())
-                            } else {
-                                onSaveFallback(capturedPhotoPath, selectedTagIds.toList())
-                                closeSheetSafely()
-                            }
-                        },
+                        onClick = { startBatchAndClose() },
+                        enabled = capturedPaths.isNotEmpty(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("保存する", fontWeight = FontWeight.SemiBold)
-                    }
-                }
-
-                if (capturedPhotoUri != null) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        AsyncImage(
-                            model = capturedPhotoUri,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(180.dp)
-                                .clip(RoundedCornerShape(12.dp)),
-                            contentScale = ContentScale.Crop
+                        Text(
+                            if (capturedPaths.isEmpty()) "写真を追加"
+                            else "${capturedPaths.size}件を処理開始",
+                            fontWeight = FontWeight.SemiBold
                         )
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(8.dp)
-                        ) {
-                            FilledTonalButton(
-                                onClick = { launchCamera() },
-                                modifier = Modifier.height(32.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp)
-                            ) {
-                                Icon(Icons.Default.AddAPhoto, null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("撮り直す", fontSize = 11.sp)
-                            }
-                            Spacer(Modifier.width(6.dp))
-                            FilledTonalButton(
-                                onClick = {
-                                    capturedPhotoPath?.let { path ->
-                                        PhotoFileManager.rotateImage(context, path)?.let { newPath ->
-                                            setAndCleanUpPhoto(newPath)
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.height(32.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp)
-                            ) {
-                                Icon(Icons.Default.RotateRight, null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("回転", fontSize = 11.sp)
-                            }
-                            Spacer(Modifier.width(6.dp))
-                            FilledTonalButton(
-                                onClick = {
-                                    galleryLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                },
-                                modifier = Modifier.height(32.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp)
-                            ) {
-                                Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("選択", fontSize = 11.sp)
-                            }
+                    }
+                }
+
+                // ─── 写真追加ボタン（カメラ・ギャラリー） ───
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { launchCamera() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(72.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.AddAPhoto, null, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.height(4.dp))
+                            Text("カメラ追加", fontSize = 12.sp)
                         }
                     }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    OutlinedButton(
+                        onClick = {
+                            galleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(72.dp),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = { launchCamera() },
-                            modifier = Modifier.weight(1f).height(80.dp),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.AddAPhoto, null, modifier = Modifier.size(24.dp))
-                                Spacer(Modifier.height(4.dp))
-                                Text("カメラで撮影", fontSize = 12.sp)
-                            }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.height(4.dp))
+                            Text("ギャラリー (複数)", fontSize = 12.sp)
                         }
-                        OutlinedButton(
-                            onClick = {
-                                galleryLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    }
+                }
+
+                // ─── 選択済み写真のプレビュー ───
+                if (capturedPaths.isNotEmpty()) {
+                    Text(
+                        "選択した写真",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(capturedPaths) { index, path ->
+                            Box(modifier = Modifier.size(80.dp)) {
+                                AsyncImage(
+                                    model = PhotoFileManager.pathToUri(path),
+                                    contentDescription = "写真 ${index + 1}",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Crop
                                 )
-                            },
-                            modifier = Modifier.weight(1f).height(80.dp),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(24.dp))
-                                Spacer(Modifier.height(4.dp))
-                                Text("ギャラリー", fontSize = 12.sp)
+                                // 番号バッジ
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(2.dp)
+                                        .size(20.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.primary,
+                                            CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "${index + 1}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                // 削除ボタン
+                                IconButton(
+                                    onClick = {
+                                        // ファイルを削除してリストから除外
+                                        try { File(path).delete() } catch (_: Exception) {}
+                                        capturedPaths = capturedPaths.toMutableList().also {
+                                            it.removeAt(index)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(22.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "削除",
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(
+                                                MaterialTheme.colorScheme.errorContainer,
+                                                CircleShape
+                                            ),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
+                // ─── タグ選択 ───
                 if (allTags.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            "タグ（任意）",
+                            "タグ（任意・全画像に適用）",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -401,25 +415,16 @@ fun QuickDraftCaptureSheet(
                         }
                     }
                 }
-            }
 
-            if (isAiProcessing) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
-                        .clickable(enabled = false) {},
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "AIが書類を解析して予定を作成中...",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                // ─── 説明テキスト ───
+                if (capturedPaths.isEmpty()) {
+                    Text(
+                        "カメラで複数枚撮影するか、ギャラリーから複数選択してください。\n処理はバックグラウンドで実行され、完了時に通知でお知らせします。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }

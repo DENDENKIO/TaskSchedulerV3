@@ -6,7 +6,6 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-// ... (rest of imports should be maintained)
 import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -112,9 +111,7 @@ class MainActivity : ComponentActivity() {
                 intent.action = null
             }
             "com.example.taskschedulerv3.ACTION_VIEW_QUICK_DRAFTS" -> {
-                // このアクションは Compose 側の NavHost で検知させるか、
-                // ViewModel を通じて遷移フラグを立てる等の処理が必要。
-                // 今回は単純化のため、Activity側でアクションを保持し、Compose側で初回ナビゲートする。
+                // 初回ナビゲート用にアクションを保持
                 intent.action = "com.example.taskschedulerv3.ACTION_VIEW_QUICK_DRAFTS" 
             }
         }
@@ -161,18 +158,14 @@ fun TaskSchedulerApp() {
                             if (currentRoute == item.route) return@NavigationBarItem
                             
                             if (item.route == Screen.ScheduleListV2.route) {
-                                // 一覧に戻ろうとしている場合、スタックにある一覧までポップ（戻る）
-                                // これが詳細画面から戻る際の最も確実な方法です
                                 val popped = navController.popBackStack(item.route, false)
                                 if (!popped) {
-                                    // もしポップできなかった（スタックにない）場合は通常遷移
                                     navController.navigate(item.route) {
                                         popUpTo(navController.graph.findStartDestination().id) { inclusive = false }
                                         launchSingleTop = true
                                     }
                                 }
                             } else {
-                                // 設定などへの遷移は通常の navigate を使用
                                 navController.navigate(item.route) {
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
@@ -199,7 +192,6 @@ fun TaskSchedulerApp() {
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    // 仮登録FAB（小さめ）
                     SmallFloatingActionButton(
                         onClick = { uiVm.openQuickDraftSheet() },
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -208,7 +200,6 @@ fun TaskSchedulerApp() {
                         Icon(Icons.Default.CameraAlt, "仮登録")
                     }
                     Spacer(Modifier.width(12.dp))
-                    // 通常タスク追加FAB（サイズを揃えるためにSmallへ変更）
                     SmallFloatingActionButton(
                         onClick = { uiVm.openAddTask() },
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -243,9 +234,7 @@ fun TaskSchedulerApp() {
                 viewModel = draftVm,
                 allTags = allTags,
                 autoMode = uiVm.quickDraftAutoMode,
-                onNavigateToEdit = { draftId ->
-                    navController.navigate(Screen.QuickDraftEdit.createRoute(draftId))
-                },
+                onNavigateToEdit = { /* バッチモードでは不使用 */ },
                 onSaveFallback = { photoPath, tagIds ->
                     draftVm.createFromCamera(photoPath = photoPath, tagIds = tagIds)
                 },

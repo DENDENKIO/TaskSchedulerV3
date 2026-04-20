@@ -9,16 +9,21 @@ import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.QuickDraftTask
 import com.example.taskschedulerv3.data.repository.QuickDraftRepository
+import com.example.taskschedulerv3.notification.NotificationHelper
 import com.example.taskschedulerv3.util.AiEngineManager
+import com.example.taskschedulerv3.util.AiPreferences
 import com.example.taskschedulerv3.util.OcrTextParser
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -43,40 +48,122 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
 
     val convertSuccess = MutableStateFlow(false)
 
+    // ── バッチ処理状態 ──
+
+    /** バッチ処理の状態を公開する */
+    data class BatchState(
+        val isProcessing: Boolean = false,
+        val totalCount: Int = 0,
+        val completedCount: Int = 0,
+        val currentFileName: String = ""
+    )
+
+    private val _batchState = MutableStateFlow(BatchState())
+    val batchState: StateFlow<BatchState> = _batchState.asStateFlow()
+
+    // 互換性のため旧フラグも維持（QuickCameraActivity等が参照）
     private val _isAiProcessing = MutableStateFlow(false)
     val isAiProcessing = _isAiProcessing.asStateFlow()
 
-    private val _navigateToDraftId = MutableStateFlow<Int?>(null)
-    val navigateToDraftId = _navigateToDraftId.asStateFlow()
+    // ── バッチキューで順番に処理 ──
 
     /**
-     * 通常の仮登録保存（AIオフ時）
+     * 複数の写真パスをバックグラウンドキューに投入する。
+     * AI有効時はOCR→AI解析→DB保存、無効時はフォールバックタイトルで保存。
+     * 処理はバックグラウンドで順番に実行され、完了時に通知を送信する。
+     *
+     * @param photoPaths 処理対象の写真ファイルパスリスト
+     * @param tagIds 全ドラフトに適用するタグIDリスト
+     * @param useAi AI解析を使用するかどうか
      */
-    fun createFromCamera(
-        photoPath: String? = null,
-        ocrText: String? = null,
-        tagIds: List<Int> = emptyList()
-    ) = viewModelScope.launch {
-        val newId = insertDraft(
-            title = generateFallbackTitle(),
-            description = null,
-            photoPath = photoPath,
-            ocrText = ocrText,
-            tagIds = tagIds
-        )
-        _navigateToDraftId.value = newId
+    fun enqueueBatch(
+        context: Context,
+        photoPaths: List<String>,
+        tagIds: List<Int>,
+        useAi: Boolean
+    ) {
+        if (photoPaths.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val total = photoPaths.size
+            _batchState.value = BatchState(
+                isProcessing = true,
+                totalCount = total,
+                completedCount = 0
+            )
+            _isAiProcessing.value = true
+
+            // 進捗通知を表示
+            NotificationHelper.showDraftBatchProgress(context, 0, total)
+
+            // AI有効時はEngineを先にロードしておく
+            if (useAi && !AiEngineManager.isLoaded()) {
+                Log.d(TAG, "Pre-loading AI engine for batch...")
+                AiEngineManager.loadEngine(context)
+            }
+
+            var successCount = 0
+            var failCount = 0
+
+            for ((index, photoPath) in photoPaths.withIndex()) {
+                val fileName = File(photoPath).name
+                _batchState.value = _batchState.value.copy(
+                    completedCount = index,
+                    currentFileName = fileName
+                )
+
+                try {
+                    if (useAi) {
+                        processSinglePhotoWithAi(context, photoPath, tagIds)
+                    } else {
+                        processSinglePhotoSimple(photoPath, tagIds)
+                    }
+                    successCount++
+                } catch (e: Exception) {
+                    Log.e(TAG, "Batch item failed: $fileName", e)
+                    // 失敗してもフォールバックタイトルで保存する
+                    try {
+                        insertDraft(
+                            title = generateFallbackTitle(),
+                            description = null,
+                            photoPath = photoPath,
+                            ocrText = null,
+                            tagIds = tagIds
+                        )
+                        failCount++
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "Even fallback insert failed", e2)
+                        failCount++
+                    }
+                }
+
+                // 進捗通知を更新
+                NotificationHelper.showDraftBatchProgress(context, index + 1, total)
+            }
+
+            // 完了
+            _batchState.value = BatchState(
+                isProcessing = false,
+                totalCount = total,
+                completedCount = total
+            )
+            _isAiProcessing.value = false
+
+            // 完了通知
+            NotificationHelper.showDraftBatchComplete(context, successCount, failCount)
+
+            Log.d(TAG, "Batch complete: $successCount success, $failCount fail (total $total)")
+        }
     }
 
     /**
-     * AIを使用して写真から予定を自動抽出し、仮登録を作成する
+     * AI解析付きで1枚の写真を処理してDBに保存する。
      */
-    fun createFromCameraWithAi(
+    private suspend fun processSinglePhotoWithAi(
         context: Context,
         photoPath: String,
         tagIds: List<Int>
-    ) = viewModelScope.launch(Dispatchers.IO) {
-        _isAiProcessing.value = true
-
+    ) {
         var finalTitle = generateFallbackTitle()
         var finalOcrText = ""
         var aiDate: String? = null
@@ -84,123 +171,159 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
         var aiEndTime: String? = null
         var aiSummary: String? = null
 
-        try {
-            // ── 1. ML KitでOCR実行 ──
-            val file = File(photoPath)
-            if (file.exists()) {
-                val bitmap = BitmapFactory.decodeFile(photoPath)
-                if (bitmap != null) {
+        // 1. ML Kit OCR
+        val file = File(photoPath)
+        if (file.exists()) {
+            val bitmap = BitmapFactory.decodeFile(photoPath)
+            if (bitmap != null) {
+                try {
                     val image = InputImage.fromBitmap(bitmap, 0)
                     val result = recognizer.process(image).await()
                     finalOcrText = result.text
-                    Log.d(TAG, "OCR Result (${finalOcrText.length} chars): ${finalOcrText.take(100)}...")
+                    Log.d(TAG, "OCR Result (${finalOcrText.length} chars): ${finalOcrText.take(80)}...")
+                } finally {
+                    bitmap.recycle()
                 }
             }
-
-            // ── 2. AI推論の実行 ──
-            if (finalOcrText.isNotBlank()) {
-
-                // Engineが未ロードなら初期化を試みる
-                if (!AiEngineManager.isLoaded()) {
-                    Log.d(TAG, "Engine not loaded, loading now...")
-                    AiEngineManager.loadEngine(context)
-                }
-
-                if (AiEngineManager.isLoaded()) {
-                    // LiteRT-LM でJSON抽出
-                    val jsonResult = AiEngineManager.analyze(finalOcrText)
-                    Log.d(TAG, "AI JSON Result: $jsonResult")
-
-                    // ── 3. JSONからデータを正規表現で抽出（崩れたJSONにも対応） ──
-                    if (!jsonResult.isNullOrBlank()) {
-                        try {
-                            val titleMatch = Regex("\"title\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                            if (titleMatch != null) {
-                                val aiTitle = titleMatch.groupValues[1].trim()
-                                if (aiTitle.isNotBlank() && aiTitle.lowercase() != "null") {
-                                    finalTitle = aiTitle
-                                }
-                            }
-
-                            val dateMatch = Regex("\"date\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                            if (dateMatch != null) {
-                                val extracted = dateMatch.groupValues[1].trim()
-                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                    aiDate = extracted
-                                }
-                            }
-
-                            val startMatch = Regex("\"start_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                            if (startMatch != null) {
-                                val extracted = startMatch.groupValues[1].trim()
-                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                    aiStartTime = extracted
-                                }
-                            }
-
-                            val endMatch = Regex("\"end_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                            if (endMatch != null) {
-                                val extracted = endMatch.groupValues[1].trim()
-                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                    aiEndTime = extracted
-                                }
-                            }
-
-                            val summaryMatch = Regex("\"summary\"\\s*:\\s*\"([\\s\\S]*?)\"").find(jsonResult)
-                            if (summaryMatch != null) {
-                                val extracted = summaryMatch.groupValues[1].trim()
-                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                    aiSummary = extracted
-                                }
-                            }
-
-                            Log.d(TAG, "AI Parsed -> title=$finalTitle, date=$aiDate, start=$aiStartTime")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Regex Parse Error", e)
-                        }
-                    } else {
-                        // AI が null/空を返した → OcrTextParser でフォールバック
-                        Log.w(TAG, "AI returned null/blank, using OCR fallback parser")
-                        applyFallback(finalOcrText).let { fb ->
-                            if (fb.title != null) finalTitle = fb.title
-                            aiDate = fb.date
-                            aiStartTime = fb.startTime
-                            aiEndTime = fb.endTime
-                            aiSummary = fb.summary
-                        }
-                    }
-                } else {
-                    // Engine 初期化失敗 → OcrTextParser でフォールバック
-                    Log.e(TAG, "Engine failed to load: ${AiEngineManager.getInitError()}")
-                    applyFallback(finalOcrText).let { fb ->
-                        if (fb.title != null) finalTitle = fb.title
-                        aiDate = fb.date
-                        aiStartTime = fb.startTime
-                        aiEndTime = fb.endTime
-                        aiSummary = fb.summary
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "AI Processing Error", e)
-        } finally {
-            // ── 4. DB保存 ──
-            val newId = insertDraft(
-                title = finalTitle,
-                description = aiSummary,
-                photoPath = photoPath,
-                ocrText = finalOcrText,
-                tagIds = tagIds,
-                startDate = aiDate,
-                startTime = aiStartTime,
-                endTime = aiEndTime
-            )
-            _isAiProcessing.value = false
-            _navigateToDraftId.value = newId
         }
+
+        // 2. AI推論
+        if (finalOcrText.isNotBlank() && AiEngineManager.isLoaded()) {
+            val jsonResult = AiEngineManager.analyze(finalOcrText)
+            Log.d(TAG, "AI JSON Result: $jsonResult")
+
+            if (!jsonResult.isNullOrBlank()) {
+                try {
+                    val titleMatch = Regex("\"title\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                    if (titleMatch != null) {
+                        val aiTitle = titleMatch.groupValues[1].trim()
+                        if (aiTitle.isNotBlank() && aiTitle.lowercase() != "null") {
+                            finalTitle = aiTitle
+                        }
+                    }
+
+                    val dateMatch = Regex("\"date\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                    if (dateMatch != null) {
+                        val extracted = dateMatch.groupValues[1].trim()
+                        if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                            aiDate = extracted
+                        }
+                    }
+
+                    val startMatch = Regex("\"start_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                    if (startMatch != null) {
+                        val extracted = startMatch.groupValues[1].trim()
+                        if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                            aiStartTime = extracted
+                        }
+                    }
+
+                    val endMatch = Regex("\"end_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                    if (endMatch != null) {
+                        val extracted = endMatch.groupValues[1].trim()
+                        if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                            aiEndTime = extracted
+                        }
+                    }
+
+                    val summaryMatch = Regex("\"summary\"\\s*:\\s*\"([\\s\\S]*?)\"").find(jsonResult)
+                    if (summaryMatch != null) {
+                        val extracted = summaryMatch.groupValues[1].trim()
+                        if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                            aiSummary = extracted
+                        }
+                    }
+
+                    Log.d(TAG, "AI Parsed -> title=$finalTitle, date=$aiDate, start=$aiStartTime")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Regex Parse Error", e)
+                }
+            } else {
+                // AI が null/空 → OcrTextParser フォールバック
+                Log.w(TAG, "AI returned null/blank, using OCR fallback")
+                applyFallback(finalOcrText).let { fb ->
+                    if (fb.title != null) finalTitle = fb.title
+                    aiDate = fb.date
+                    aiStartTime = fb.startTime
+                    aiEndTime = fb.endTime
+                    aiSummary = fb.summary
+                }
+            }
+        } else if (finalOcrText.isNotBlank()) {
+            // Engine未ロード → OcrTextParser フォールバック
+            applyFallback(finalOcrText).let { fb ->
+                if (fb.title != null) finalTitle = fb.title
+                aiDate = fb.date
+                aiStartTime = fb.startTime
+                aiEndTime = fb.endTime
+                aiSummary = fb.summary
+            }
+        }
+        // finalOcrText がブランクの場合はフォールバックタイトルのまま
+
+        // 3. DB保存
+        insertDraft(
+            title = finalTitle,
+            description = aiSummary,
+            photoPath = photoPath,
+            ocrText = finalOcrText.ifBlank { null },
+            tagIds = tagIds,
+            startDate = aiDate,
+            startTime = aiStartTime,
+            endTime = aiEndTime
+        )
     }
 
-    /** OcrTextParser によるフォールバック抽出 */
+    /**
+     * AIなしで1枚の写真を処理してDBに保存する（フォールバックタイトル）。
+     */
+    private suspend fun processSinglePhotoSimple(
+        photoPath: String,
+        tagIds: List<Int>
+    ) {
+        insertDraft(
+            title = generateFallbackTitle(),
+            description = null,
+            photoPath = photoPath,
+            ocrText = null,
+            tagIds = tagIds
+        )
+    }
+
+    // ── 互換性のため旧メソッドを維持 ──
+
+    /**
+     * 通常の仮登録保存（AIオフ時）。単一写真用。
+     * QuickCameraActivity から呼ばれる可能性があるため維持。
+     */
+    fun createFromCamera(
+        photoPath: String? = null,
+        ocrText: String? = null,
+        tagIds: List<Int> = emptyList()
+    ) = viewModelScope.launch {
+        insertDraft(
+            title = generateFallbackTitle(),
+            description = null,
+            photoPath = photoPath,
+            ocrText = ocrText,
+            tagIds = tagIds
+        )
+    }
+
+    /**
+     * AI使用の単一写真仮登録。互換性維持用。
+     * 内部的にバッチキュー（1件）として処理する。
+     */
+    fun createFromCameraWithAi(
+        context: Context,
+        photoPath: String,
+        tagIds: List<Int>
+    ) {
+        enqueueBatch(context, listOf(photoPath), tagIds, useAi = true)
+    }
+
+    // ── 共通ヘルパー ──
+
     private fun applyFallback(ocrText: String): OcrTextParser.ParsedInfo {
         return OcrTextParser.fallbackParseFromOcr(ocrText)
     }
@@ -253,10 +376,6 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearConvertSuccess() { convertSuccess.value = false }
-
-    fun clearNavigation() {
-        _navigateToDraftId.value = null
-    }
 
     override fun onCleared() {
         super.onCleared()

@@ -9,6 +9,8 @@ import com.example.taskschedulerv3.util.AiPreferences
 import com.example.taskschedulerv3.util.ExportImportManager
 import com.example.taskschedulerv3.util.ThemeMode
 import com.example.taskschedulerv3.util.ThemePreferences
+import com.example.taskschedulerv3.util.PhotoFileManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -96,4 +98,21 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearState() { _exportImportState.value = ExportImportState.Idle }
+
+    // ギャラリー重複削除
+    private val _galleryCleanupResult = MutableStateFlow<String?>(null)
+    val galleryCleanupResult: StateFlow<String?> = _galleryCleanupResult.asStateFlow()
+
+    fun cleanupGalleryDuplicates() = viewModelScope.launch(Dispatchers.IO) {
+        val count = PhotoFileManager.cleanupGalleryDuplicates(getApplication())
+        _galleryCleanupResult.value = if (count > 0) {
+            "${count}件の重複画像をギャラリーから削除しました"
+        } else {
+            "削除対象の画像はありませんでした"
+        }
+    }
+
+    fun clearGalleryCleanupResult() {
+        _galleryCleanupResult.value = null
+    }
 }

@@ -1,10 +1,10 @@
 package com.example.taskschedulerv3.ui.quickdraft
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
@@ -31,9 +31,6 @@ import com.example.taskschedulerv3.util.PhotoFileManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.example.taskschedulerv3.util.AiPreferences
-import com.example.taskschedulerv3.util.AiModelManager
-import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,13 +40,13 @@ fun QuickDraftListScreen(
     listVm: ScheduleListViewModel = viewModel()
 ) {
     val drafts by vm.drafts.collectAsState()
+    val batchState by vm.batchState.collectAsState()
     var deleteTarget by remember { mutableStateOf<QuickDraftTask?>(null) }
     var convertTarget by remember { mutableStateOf<QuickDraftTask?>(null) }
     var showCaptureSheet by remember { mutableStateOf(false) }
 
     val convertSuccess by vm.convertSuccess.collectAsState()
 
-    // 本登録成功時
     LaunchedEffect(convertSuccess) {
         if (convertSuccess) {
             vm.clearConvertSuccess()
@@ -107,36 +104,88 @@ fun QuickDraftListScreen(
             }
         }
     ) { padding ->
-        if (drafts.isEmpty()) {
-            Box(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("仮登録がありません", style = MaterialTheme.typography.bodyLarge)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "カメラボタンから写真を撮影して仮登録を作成",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+
+            // ── バッチ処理進捗インジケーター ──
+            AnimatedVisibility(visible = batchState.isProcessing) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "バックグラウンドで処理中...",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                "${batchState.completedCount} / ${batchState.totalCount}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = {
+                                if (batchState.totalCount > 0)
+                                    batchState.completedCount.toFloat() / batchState.totalCount
+                                else 0f
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (batchState.currentFileName.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                batchState.currentFileName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 80.dp)
-            ) {
-                items(drafts, key = { it.id }) { draft ->
-                    QuickDraftListItem(
-                        draft = draft,
-                        onEdit = { navController.navigate(Screen.QuickDraftEdit.createRoute(draft.id)) },
-                        onConvert = { convertTarget = draft },
-                        onDelete = { deleteTarget = draft }
-                    )
-                    HorizontalDivider()
+
+            // ── リスト ──
+            if (drafts.isEmpty() && !batchState.isProcessing) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("仮登録がありません", style = MaterialTheme.typography.bodyLarge)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "カメラボタンで複数枚撮影、またはギャラリーから\n複数選択して一括登録できます",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(drafts, key = { it.id }) { draft ->
+                        QuickDraftListItem(
+                            draft = draft,
+                            onEdit = { navController.navigate(Screen.QuickDraftEdit.createRoute(draft.id)) },
+                            onConvert = { convertTarget = draft },
+                            onDelete = { deleteTarget = draft }
+                        )
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -195,7 +244,6 @@ private fun QuickDraftListItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                // 設定されているタグを表示
                 val listVm: ScheduleListViewModel = viewModel()
                 val allTags by listVm.allTags.collectAsState()
                 val tagNames = remember(draft.tagIds, allTags) {

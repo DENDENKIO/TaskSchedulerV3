@@ -236,6 +236,43 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
                 HorizontalDivider()
             }
 
+            // ==================== ギャラリー整理 ==================== //
+            val galleryCleanupResult by vm.galleryCleanupResult.collectAsState()
+            var showCleanupDialog by remember { mutableStateOf(false) }
+
+            if (showCleanupDialog) {
+                AlertDialog(
+                    onDismissRequest = { showCleanupDialog = false },
+                    title = { Text("ギャラリーの重複画像を削除") },
+                    text = {
+                        Text("過去にこのアプリが「最近」に保存した重複画像を一括削除します。\n\n元の写真（カメラで撮影したオリジナル）には影響しません。")
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            vm.cleanupGalleryDuplicates()
+                            showCleanupDialog = false
+                        }) { Text("削除する", color = MaterialTheme.colorScheme.error) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showCleanupDialog = false }) { Text("キャンセル") }
+                    }
+                )
+            }
+
+            LaunchedEffect(galleryCleanupResult) {
+                galleryCleanupResult?.let { msg ->
+                    snackbarHostState.showSnackbar(msg)
+                    vm.clearGalleryCleanupResult()
+                }
+            }
+
+            SettingsItem(
+                title = "ギャラリーの重複画像を削除",
+                subtitle = "「最近」に増えた仮登録の重複画像を一括削除",
+                onClick = { showCleanupDialog = true }
+            )
+            HorizontalDivider()
+
             // ==================== AI設定セクション ==================== //
 
             Spacer(modifier = Modifier.height(8.dp))
