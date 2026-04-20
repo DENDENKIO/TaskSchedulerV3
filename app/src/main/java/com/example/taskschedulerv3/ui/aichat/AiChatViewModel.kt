@@ -63,31 +63,60 @@ class AiChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 【第2段階】オンデバイスLLMを使用した意図解析とDB検索
+     * 【第2段階：ハイブリッド方式】プログラム判定（ルールベース）＋ LLMフォールバック
      */
     private suspend fun processQuery(query: String): String {
-        // AIエンジンの初期化（すでに初期化済みならスキップされる）
-        AiTextExtractor.initialize(getApplication())
-
-        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-        
-        // LLMに意図解析を依頼
-        val jsonResult = AiTextExtractor.parseChatIntent(query, todayStr)
-        
         var targetDateStr = ""
         var keyword = ""
+        val today = LocalDate.now()
+        var dateLabel = ""
 
-        // LLMのJSONレスポンスをパース
-        if (!jsonResult.isNullOrBlank()) {
-            try {
-                val json = JSONObject(jsonResult)
-                targetDateStr = json.optString("target_date", "")
-                keyword = json.optString("keyword", "")
-            } catch (e: Exception) {
-                return "すみません、質問の解析に失敗しました。もう少しシンプルに聞いてみてください。"
+        // ==========================================
+        // 1. 高速で確実なルールベース（正規表現・キーワード検索）
+        // ==========================================
+        if (query.contains("今日")) {
+            targetDateStr = today.format(DateTimeFormatter.ISO_LOCAL_DATE)
+            dateLabel = "今日"
+        } else if (query.contains("明日")) {
+            targetDateStr = today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
+            dateLabel = "明日"
+        } else if (query.contains("明後日")) {
+            targetDateStr = today.plusDays(2).format(DateTimeFormatter.ISO_LOCAL_DATE)
+            dateLabel = "明後日"
+        }
+
+        // キーワードの簡易抽出（例：「会議の予定」→「会議」）
+        val keywordMatch = Regex("「(.+)」").find(query) ?: Regex("(.+)の予定").find(query)
+        if (keywordMatch != null) {
+            val rawKeyword = keywordMatch.groupValues[1]
+            keyword = rawKeyword.replace("今日", "").replace("明日", "").replace("明後日", "").trim()
+        }
+
+        // ==========================================
+        // 2. ルールベースで判定できなかった場合のみ、LLM（AI）に頼る
+        // ==========================================
+        if (targetDateStr.isBlank() && keyword.isBlank()) {
+            AiTextExtractor.initialize(getApplication())
+            val todayStr = today.format(DateTimeFormatter.ISO_LOCAL_DATE)
+            val jsonResult = AiTextExtractor.parseChatIntent(query, todayStr)
+            
+            if (!jsonResult.isNullOrBlank()) {
+                try {
+                    val json = JSONObject(jsonResult)
+                    targetDateStr = json.optString("target_date", "")
+                    keyword = json.optString("keyword", "")
+                    
+                    // 日付フォーマットの表記揺れ（/ を - に置換）を吸収
+                    targetDateStr = targetDateStr.replace("/", "-")
+                } catch (e: Exception) {
+                    // JSONパース失敗時はフォールバックを表示せずに続行
+                }
             }
         }
 
+        // ==========================================
+        // 3. 検索の実行と結果の返却
+        // ==========================================
         if (targetDateStr.isBlank() && keyword.isBlank()) {
             return "いつの予定か、または何の予定か教えていただけますか？（例：「明日の予定」「会議の予定」）"
         }
@@ -103,16 +132,16 @@ class AiChatViewModel(app: Application) : AndroidViewModel(app) {
             !task.isCompleted && !task.isDeleted && matchDate && matchKeyword
         }.sortedBy { it.startTime ?: "23:59" }
 
-        // 返答文の組み立て
+        // ラベルの準備
+        val dLabel = if (dateLabel.isNotBlank()) dateLabel else if (targetDateStr.isNotBlank()) "${targetDateStr}の" else ""
+        val kwLabel = if (keyword.isNotBlank()) "「${keyword}」に関する" else ""
+
         if (matchedTasks.isEmpty()) {
-            return "該当する予定は見は見つかりませんでした。"
+            return "${dLabel}${kwLabel}予定は見つかりませんでした。"
         }
 
-        val dateLabel = if (targetDateStr.isNotBlank()) "${targetDateStr}の" else ""
-        val keywordLabel = if (keyword.isNotBlank()) "「${keyword}」に関する" else ""
-
         val sb = StringBuilder()
-        sb.append("${dateLabel}${keywordLabel}予定は **${matchedTasks.size}件** あります。\n\n")
+        sb.append("${dLabel}${kwLabel}予定は **${matchedTasks.size}件** あります。\n\n")
         matchedTasks.forEach { task ->
             val time = task.startTime ?: "終日"
             sb.append("・ $time : ${task.title}\n")

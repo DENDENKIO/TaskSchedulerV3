@@ -47,38 +47,36 @@ object AiTextExtractor {
         Log.d(TAG, "MediaPipe LLM Inference closed.")
     }
 
-    /**
-     * 【修正】OCRテキストの解析 ＋ 自動修正・要約機能
-     */
     suspend fun extractScheduleInfo(ocrText: String): String? = withContext(Dispatchers.IO) {
-        val llm = llmInference ?: run {
-            Log.e(TAG, "LLM is not initialized. Call initialize() first.")
-            return@withContext null
-        }
+        val llm = llmInference ?: return@withContext null
 
-        // 誤字脱字の修正と要約をプロンプトで明示的に指示
+        // 小規模モデルがサボらないよう「具体的な出力例」をプロンプトに含める
         val prompt = """
-            以下のテキストは書類をOCRで読み取ったものですが、誤字脱字や不要な記号が含まれている可能性があります。
-            このテキストを「正しい日本語に修正・要約」した上で、予定の情報を抽出し、以下のJSONフォーマットのみで出力してください。
-            Markdownの装飾(```jsonなど)は不要です。
+            あなたは優秀な秘書です。以下の【OCRテキスト】を読み取り、JSONフォーマットで情報を抽出してください。
 
-            【出力フォーマット】
+            【絶対のルール】
+            1. "title": テキストの一番上の行をそのまま使うのではなく、内容全体を読んで15文字以内の「分かりやすいタイトル」をあなたが新しく考えてください。
+            2. "summary": OCRテキストの誤字や改行のおかしな部分を修正し、人間が読みやすいように要約した文章を必ず書いてください。
+            3. "date", "start_time", "end_time" は見つからなければ "" (空文字) にしてください。
+
+            【出力の例】
             {
-              "title": "予定のタイトル",
-              "date": "YYYY-MM-DD",
-              "start_time": "HH:mm",
-              "end_time": "HH:mm",
-              "summary": "OCRテキストをわかりやすく修正・要約した文章"
+              "title": "保護者会のお知らせ",
+              "date": "2026-04-25",
+              "start_time": "13:00",
+              "end_time": "15:00",
+              "summary": "来週土曜日に体育館で保護者会が開催されます。スリッパを持参してください。"
             }
-            ※不明な項目は "" にすること。
 
-            【入力テキスト】
+            上記のルールとフォーマットに従って、以下のテキストを処理してください。Markdown装飾(```jsonなど)は絶対に書かないでください。
+
+            【OCRテキスト】
             $ocrText
         """.trimIndent()
 
         try {
             val response = llm.generateResponse(prompt)
-            Log.d(TAG, "LLM Extraction Response: $response")
+            Log.d(TAG, "LLM Raw Response: $response") // ここでAIの実際の出力をログで確認できます
             extractJsonString(response)
         } catch (e: Exception) {
             Log.e(TAG, "Error generating LLM response", e)

@@ -102,21 +102,28 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
             if (finalOcrText.isNotBlank()) {
                 val jsonResult = AiTextExtractor.extractScheduleInfo(finalOcrText)
                 
-                // 3. JSONパース
+                // 3. JSONパースとデータ抽出
                 if (!jsonResult.isNullOrBlank()) {
                     try {
                         val json = JSONObject(jsonResult)
-                        val title = json.optString("title", "")
-                        if (title.isNotBlank()) finalTitle = title
                         
-                        aiDate = json.optString("date", "").takeIf { it.isNotBlank() && it != "null" }
-                        aiStartTime = json.optString("start_time", "").takeIf { it.isNotBlank() && it != "null" }
-                        aiEndTime = json.optString("end_time", "").takeIf { it.isNotBlank() && it != "null" }
-                        aiSummary = json.optString("summary", "").takeIf { it.isNotBlank() && it != "null" }
+                        // --- タイトルの取得をより確実にする ---
+                        val aiTitle = json.optString("title", "").trim()
+                        // AIがタイトルを生成できた場合のみ上書き（"null"という文字列が返ってきた場合も弾く）
+                        if (aiTitle.isNotBlank() && aiTitle.lowercase() != "null") {
+                            finalTitle = aiTitle
+                        }
+                        // ------------------------------------
+
+                        aiDate = json.optString("date", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
+                        aiStartTime = json.optString("start_time", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
+                        aiEndTime = json.optString("end_time", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
+                        aiSummary = json.optString("summary", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
                         
-                        Log.d("QuickDraftVM", "AI Parsed Data: $json")
+                        Log.d("QuickDraftViewModel", "AI Parsed Data: $json")
+                        Log.d("QuickDraftViewModel", "Final Title set to: $finalTitle") // デバッグ用ログ
                     } catch (e: Exception) {
-                        Log.e("QuickDraftVM", "JSON Parse Error", e)
+                        Log.e("QuickDraftViewModel", "JSON Parse Error", e)
                     }
                 }
             }

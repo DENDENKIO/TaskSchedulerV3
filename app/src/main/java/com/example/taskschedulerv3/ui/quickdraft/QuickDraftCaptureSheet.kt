@@ -59,6 +59,20 @@ fun QuickDraftCaptureSheet(
     var tempCameraFile by remember { mutableStateOf<File?>(null) }
     var selectedTagIds by remember { mutableStateOf(setOf<Int>()) }
 
+    // ─── 【新規追加】古い写真を削除して新しい写真をセットする関数 ───
+    fun setAndCleanUpPhoto(newPath: String?) {
+        if (capturedPhotoPath != null && capturedPhotoPath != newPath) {
+            try {
+                File(capturedPhotoPath!!).delete() // 前の写真をストレージから消す
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        capturedPhotoPath = newPath
+        capturedPhotoUri = newPath?.let { PhotoFileManager.pathToUri(it) }
+    }
+    // ───────────────────────────────────────────
+
     // ===== AIモデルのライフサイクル管理 =====
     LaunchedEffect(useAi) {
         if (useAi) {
@@ -76,8 +90,7 @@ fun QuickDraftCaptureSheet(
         if (success) {
             tempCameraFile?.let { file ->
                 val path = PhotoFileManager.saveResizedPhotoFromFile(context, file)
-                capturedPhotoPath = path
-                capturedPhotoUri = path?.let { PhotoFileManager.pathToUri(it) }
+                setAndCleanUpPhoto(path)
                 tempCameraFile = null
 
                 if (autoMode) {
@@ -105,8 +118,7 @@ fun QuickDraftCaptureSheet(
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let {
             val path = PhotoFileManager.saveResizedPhoto(context, it)
-            capturedPhotoPath = path
-            capturedPhotoUri = path?.let { p -> PhotoFileManager.pathToUri(p) }
+            setAndCleanUpPhoto(path)
         }
     }
 
@@ -250,8 +262,7 @@ fun QuickDraftCaptureSheet(
                                 onClick = {
                                     capturedPhotoPath?.let { path ->
                                         PhotoFileManager.rotateImage(context, path)?.let { newPath ->
-                                            capturedPhotoPath = newPath
-                                            capturedPhotoUri = Uri.parse("file://$newPath")
+                                            setAndCleanUpPhoto(newPath)
                                         }
                                     }
                                 },
