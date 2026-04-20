@@ -83,9 +83,6 @@ fun AddTaskBottomSheet(
     val ocrResult by photoVm.ocrResult.collectAsState()
     val isOcrProcessing by photoVm.isProcessing.collectAsState()
 
-    // 初期化中の循環参照を避けるための参照保持用
-    val sheetStateRef = remember { mutableStateOf<SheetState?>(null) }
-
     // ==========================================
     // 修正：シートを安全に閉じるための仕組み（アニメーションを待ってから消す）
     // ==========================================
@@ -96,28 +93,26 @@ fun AddTaskBottomSheet(
         skipPartiallyExpanded = true,
         confirmValueChange = { newValue ->
             if (newValue == SheetValue.Hidden && !forceClose) {
-                // スワイプで閉じようとしたら一旦ブロックして確認ダイアログを出す
-                val currentOffset = sheetStateRef.value?.requireOffset() ?: 0f
-                val threshold = sheetHeight * 0.8f
-                
-                if (currentOffset > threshold) {
-                    showCloseConfirmation = true
-                }
+                // スワイプや外側タップで閉じようとしたら一旦ブロックして確認ダイアログを出す
+                showCloseConfirmation = true
                 false 
             } else {
                 true
             }
         }
     )
-    // 実体を紐づける
-    SideEffect { sheetStateRef.value = sheetState }
 
     // アニメーションを完了させてから安全に破棄する関数
     fun closeSheetSafely() {
         scope.launch {
             forceClose = true
-            try { sheetState.hide() } catch (e: Exception) { /* ignore */ }
-            onDismiss()
+            try {
+                sheetState.hide()
+            } catch (e: Exception) {
+                // ignore
+            } finally {
+                onDismiss()
+            }
         }
     }
 

@@ -175,8 +175,13 @@ fun QuickDraftCaptureSheet(
     fun closeSheetSafely() {
         scope.launch {
             forceClose = true
-            try { draftSheetState.hide() } catch (e: Exception) { /* ignore */ }
-            onDismiss()
+            try {
+                draftSheetState.hide()
+            } catch (e: Exception) {
+                // ignore
+            } finally {
+                onDismiss()
+            }
         }
     }
 
