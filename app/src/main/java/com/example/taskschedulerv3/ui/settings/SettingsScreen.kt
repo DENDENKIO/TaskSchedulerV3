@@ -100,7 +100,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             onDismissRequest = { showAiOnConfirmDialog = false },
             title = { Text("AIモデルのダウンロード") },
             text = {
-                Text("AI機能を使用するには、約529MBのモデルデータをダウンロードする必要があります。\n\nWi-Fi環境でのダウンロードを推奨します。")
+                Text("AI機能を使用するには、約2.6GBのモデルデータをダウンロードする必要があります。\n\nWi-Fi環境でのダウンロードを推奨します。")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -240,7 +240,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // --- 追加: トークン入力フィールド ---
+            // --- トークン入力フィールド ---
             val hfToken by vm.hfToken.collectAsState()
             var isTokenVisible by remember { mutableStateOf(false) }
 
@@ -259,7 +259,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             ListItem(
                 headlineContent = {
                     Text(
-                        "AI機能",
+                        "AI機能（Gemma 4 E2B）",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -275,11 +275,11 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             ListItem(
                 headlineContent = { Text("AI機能を使用する") },
                 supportingContent = {
-                    val currentState = aiModelState // 状態をローカル変数に固定（重要）
+                    val currentState = aiModelState
                     when (currentState) {
                         is AiModelManager.ModelState.NotDownloaded ->
                             Text(
-                                "ONにするとモデル（約529MB）をダウンロードします",
+                                "ONにするとモデル（約2.6GB）をダウンロードします",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         is AiModelManager.ModelState.Downloading ->
@@ -315,7 +315,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
                 }
             )
 
-            // --- 修正: クラッシュ防止版プログレスバー ---
+            // プログレスバー
             val currentStateForBar = aiModelState
             if (currentStateForBar is AiModelManager.ModelState.Downloading) {
                 val progressValue = currentStateForBar.progress / 100f

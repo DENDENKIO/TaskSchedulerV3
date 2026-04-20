@@ -14,11 +14,11 @@ object AiModelManager {
 
     private const val TAG = "AiModelManager"
     private const val MODEL_DIR = "ai_model"
-    private const val MODEL_FILENAME = "gemma3-1b-it-int4.litertlm"
+    private const val MODEL_FILENAME = "gemma-4-E2B-it.litertlm"
 
-    // Gemma3-1B-IT int4 QAT版: 約529MB, CPU/GPU両対応, 高速推論
+    // Gemma 4 E2B: 約2.58GB, CPU/GPU両対応, 高品質日本語推論
     private const val MODEL_DOWNLOAD_URL =
-        "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.litertlm"
+        "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
 
     sealed class ModelState {
         object NotDownloaded : ModelState()
@@ -37,7 +37,7 @@ object AiModelManager {
 
     fun checkModelExists(context: Context): Boolean {
         val file = getModelFile(context)
-        return file.exists() && file.length() > 100_000
+        return file.exists() && file.length() > 1_000_000_000
     }
 
     fun getModelFile(context: Context): File {
@@ -153,16 +153,16 @@ object AiModelManager {
             }
             connection.disconnect()
 
-            if (tmpFile.length() < 100_000) {
+            if (tmpFile.length() < 1_000_000_000) {
                 tmpFile.delete()
-                _state.value = ModelState.Error("ダウンロードファイルが小さすぎます")
+                _state.value = ModelState.Error("ダウンロードファイルが不完全です（サイズ不足）")
                 return@withContext false
             }
 
             if (file.exists()) file.delete()
             tmpFile.renameTo(file)
 
-            Log.d(TAG, "ダウンロード完了")
+            Log.d(TAG, "ダウンロード完了: ${file.length() / (1024 * 1024)} MB")
             _state.value = ModelState.Ready
             true
         } catch (e: Exception) {
@@ -178,6 +178,9 @@ object AiModelManager {
     suspend fun deleteModel(context: Context) = withContext(Dispatchers.IO) {
         val file = getModelFile(context)
         if (file.exists()) file.delete()
+        // 旧モデル（Gemma3）が残っている場合も削除
+        val oldFile = File(File(context.filesDir, MODEL_DIR), "gemma3-1b-it-int4.litertlm")
+        if (oldFile.exists()) oldFile.delete()
         _state.value = ModelState.NotDownloaded
     }
 }
