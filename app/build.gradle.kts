@@ -35,16 +35,13 @@ android {
     buildFeatures {
         compose = true
     }
-
 }
 
-// ★ 新しいcompilerOptions DSL（android { } の外側に配置）
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
-
 
 dependencies {
     implementation(libs.androidx.core.ktx)
@@ -64,13 +61,13 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
     implementation(libs.androidx.exifinterface)
-    
+
     // OCR: ML Kit Text Recognition Japanese
     implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
-    // MediaPipe GenAI: オンデバイスLLM推論 (.litertlm / .task)
-    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+    // LiteRT-LM: オンデバイスLLM推論（MediaPipe後継・推奨）
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

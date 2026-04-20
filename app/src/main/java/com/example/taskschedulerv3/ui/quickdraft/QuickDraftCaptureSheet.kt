@@ -45,7 +45,7 @@ import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.ui.settings.SettingsViewModel
-import com.example.taskschedulerv3.util.AiTextExtractor
+import com.example.taskschedulerv3.util.AiEngineManager
 import com.example.taskschedulerv3.util.PhotoFileManager
 import java.io.File
 
@@ -86,15 +86,10 @@ fun QuickDraftCaptureSheet(
         capturedPhotoUri = newPath?.let { PhotoFileManager.pathToUri(it) }
     }
 
-    // AIモデルのライフサイクル管理
+    // AIエンジンの初期化
     LaunchedEffect(useAi) {
-        if (useAi) {
-            AiTextExtractor.initialize(context)
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            AiTextExtractor.close()
+        if (useAi && !AiEngineManager.isLoaded()) {
+            AiEngineManager.loadEngine(context)
         }
     }
 

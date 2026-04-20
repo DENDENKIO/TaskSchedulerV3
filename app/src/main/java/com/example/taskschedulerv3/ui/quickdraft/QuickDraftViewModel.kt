@@ -3,14 +3,14 @@ package com.example.taskschedulerv3.ui.quickdraft
 import android.app.Application
 import android.content.Context
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.QuickDraftTask
 import com.example.taskschedulerv3.data.repository.QuickDraftRepository
-import com.example.taskschedulerv3.util.AiTextExtractor
+import com.example.taskschedulerv3.util.AiEngineManager
+import com.example.taskschedulerv3.util.OcrTextParser
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import org.json.JSONObject
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -77,16 +76,16 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
         tagIds: List<Int>
     ) = viewModelScope.launch(Dispatchers.IO) {
         _isAiProcessing.value = true
-        
+
         var finalTitle = generateFallbackTitle()
         var finalOcrText = ""
         var aiDate: String? = null
         var aiStartTime: String? = null
         var aiEndTime: String? = null
         var aiSummary: String? = null
-        
+
         try {
-            // 1. ML KitでOCR実行
+            // ── 1. ML KitでOCR実行 ──
             val file = File(photoPath)
             if (file.exists()) {
                 val bitmap = BitmapFactory.decodeFile(photoPath)
@@ -94,69 +93,98 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
                     val image = InputImage.fromBitmap(bitmap, 0)
                     val result = recognizer.process(image).await()
                     finalOcrText = result.text
-                    Log.d("QuickDraftVM", "OCR Result: ${finalOcrText.take(100)}...")
+                    Log.d(TAG, "OCR Result (${finalOcrText.length} chars): ${finalOcrText.take(100)}...")
                 }
             }
 
-            // 2. AI推論の実行
+            // ── 2. AI推論の実行 ──
             if (finalOcrText.isNotBlank()) {
-                val jsonResult = AiTextExtractor.extractScheduleInfo(finalOcrText)
-                
-                // 3. AIのテキストからデータを強制抽出（JSONが崩れていてもエラーにしない強力な手法）
-                if (!jsonResult.isNullOrBlank()) {
-                    try {
-                        // "title": "○○" の ○○ の部分だけを正規表現で狙い撃ちする
-                        val titleMatch = Regex("\"title\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                        if (titleMatch != null) {
-                            val aiTitle = titleMatch.groupValues[1].trim()
-                            if (aiTitle.isNotBlank() && aiTitle.lowercase() != "null") {
-                                finalTitle = aiTitle
-                            }
-                        }
 
-                        val dateMatch = Regex("\"date\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                        if (dateMatch != null) {
-                            val extracted = dateMatch.groupValues[1].trim()
-                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                aiDate = extracted
-                            }
-                        }
+                // Engineが未ロードなら初期化を試みる
+                if (!AiEngineManager.isLoaded()) {
+                    Log.d(TAG, "Engine not loaded, loading now...")
+                    AiEngineManager.loadEngine(context)
+                }
 
-                        val startMatch = Regex("\"start_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                        if (startMatch != null) {
-                            val extracted = startMatch.groupValues[1].trim()
-                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                aiStartTime = extracted
-                            }
-                        }
+                if (AiEngineManager.isLoaded()) {
+                    // LiteRT-LM でJSON抽出
+                    val jsonResult = AiEngineManager.analyze(finalOcrText)
+                    Log.d(TAG, "AI JSON Result: $jsonResult")
 
-                        val endMatch = Regex("\"end_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
-                        if (endMatch != null) {
-                            val extracted = endMatch.groupValues[1].trim()
-                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                aiEndTime = extracted
+                    // ── 3. JSONからデータを正規表現で抽出（崩れたJSONにも対応） ──
+                    if (!jsonResult.isNullOrBlank()) {
+                        try {
+                            val titleMatch = Regex("\"title\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                            if (titleMatch != null) {
+                                val aiTitle = titleMatch.groupValues[1].trim()
+                                if (aiTitle.isNotBlank() && aiTitle.lowercase() != "null") {
+                                    finalTitle = aiTitle
+                                }
                             }
-                        }
 
-                        // summaryは改行が含まれることがあるため、少し幅広く抽出
-                        val summaryMatch = Regex("\"summary\"\\s*:\\s*\"([\\s\\S]*?)\"").find(jsonResult)
-                        if (summaryMatch != null) {
-                            val extracted = summaryMatch.groupValues[1].trim()
-                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
-                                aiSummary = extracted
+                            val dateMatch = Regex("\"date\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                            if (dateMatch != null) {
+                                val extracted = dateMatch.groupValues[1].trim()
+                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                    aiDate = extracted
+                                }
                             }
-                        }
 
-                        Log.d("QuickDraftViewModel", "AI Regex Parsed Title: $finalTitle")
-                    } catch (e: Exception) {
-                        Log.e("QuickDraftViewModel", "Regex Parse Error", e)
+                            val startMatch = Regex("\"start_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                            if (startMatch != null) {
+                                val extracted = startMatch.groupValues[1].trim()
+                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                    aiStartTime = extracted
+                                }
+                            }
+
+                            val endMatch = Regex("\"end_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                            if (endMatch != null) {
+                                val extracted = endMatch.groupValues[1].trim()
+                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                    aiEndTime = extracted
+                                }
+                            }
+
+                            val summaryMatch = Regex("\"summary\"\\s*:\\s*\"([\\s\\S]*?)\"").find(jsonResult)
+                            if (summaryMatch != null) {
+                                val extracted = summaryMatch.groupValues[1].trim()
+                                if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                    aiSummary = extracted
+                                }
+                            }
+
+                            Log.d(TAG, "AI Parsed -> title=$finalTitle, date=$aiDate, start=$aiStartTime")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Regex Parse Error", e)
+                        }
+                    } else {
+                        // AI が null/空を返した → OcrTextParser でフォールバック
+                        Log.w(TAG, "AI returned null/blank, using OCR fallback parser")
+                        applyFallback(finalOcrText).let { fb ->
+                            if (fb.title != null) finalTitle = fb.title
+                            aiDate = fb.date
+                            aiStartTime = fb.startTime
+                            aiEndTime = fb.endTime
+                            aiSummary = fb.summary
+                        }
+                    }
+                } else {
+                    // Engine 初期化失敗 → OcrTextParser でフォールバック
+                    Log.e(TAG, "Engine failed to load: ${AiEngineManager.getInitError()}")
+                    applyFallback(finalOcrText).let { fb ->
+                        if (fb.title != null) finalTitle = fb.title
+                        aiDate = fb.date
+                        aiStartTime = fb.startTime
+                        aiEndTime = fb.endTime
+                        aiSummary = fb.summary
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("QuickDraftVM", "AI Processing Error", e)
+            Log.e(TAG, "AI Processing Error", e)
         } finally {
-            // 4. DB保存
+            // ── 4. DB保存 ──
             val newId = insertDraft(
                 title = finalTitle,
                 description = aiSummary,
@@ -168,9 +196,13 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
                 endTime = aiEndTime
             )
             _isAiProcessing.value = false
-            // 編集画面へ遷移させるためにIDを発行
             _navigateToDraftId.value = newId
         }
+    }
+
+    /** OcrTextParser によるフォールバック抽出 */
+    private fun applyFallback(ocrText: String): OcrTextParser.ParsedInfo {
+        return OcrTextParser.fallbackParseFromOcr(ocrText)
     }
 
     private suspend fun insertDraft(
@@ -229,5 +261,9 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         super.onCleared()
         recognizer.close()
+    }
+
+    companion object {
+        private const val TAG = "QuickDraftVM"
     }
 }
