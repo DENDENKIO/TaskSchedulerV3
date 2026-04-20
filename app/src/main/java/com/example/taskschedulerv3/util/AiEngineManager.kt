@@ -12,16 +12,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * LiteRT-LM Engine のシングルトン管理。
- * - loadEngine: モデルをRAMへロード（初回約3-10秒）
- * - analyze: OCRテキストからJSON形式で日付・タイトル・要約を抽出
+ * - loadEngine: モデルをRAMへロード
+ * - analyze: OCRテキストからJSON形式で日付・タイトル・要約を抽出（タイムアウト付）
  * - releaseEngine: RAM解放
  */
 object AiEngineManager {
 
     private const val TAG = "AiEngineManager"
+    private const val INFERENCE_TIMEOUT_MS = 60_000L  // 60秒タイムアウト
+    private const val MAX_OCR_LENGTH = 500            // OCR入力の最大文字数
+
     private var engine: Engine? = null
     private val mutex = Mutex()
     private var initError: String? = null
@@ -33,8 +37,7 @@ object AiEngineManager {
     fun getInitError(): String? = initError
 
     /**
-     * Engine をロードする。既にロード済みなら何もしない。
-     * 必ずバックグラウンドスレッドから呼ぶこと（約3-10秒かかる）。
+     * Engine をロードする。
      */
     suspend fun loadEngine(context: Context) = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -90,9 +93,7 @@ object AiEngineManager {
 
     /**
      * OCRテキストをLLMに渡して構造化データを取得する。
-     *
-     * @param ocrText ML Kit OCRで取得した生テキスト
-     * @return LLMからのレスポンス文字列（JSON形式を期待）、失敗時はnull
+     * 60秒タイムアウト付き。OCRテキストは500文字に制限。
      */
     suspend fun analyze(ocrText: String): String? = withContext(Dispatchers.IO) {
         val currentEngine = engine ?: run {
@@ -100,43 +101,63 @@ object AiEngineManager {
             return@withContext null
         }
 
-        val systemPrompt = """あなたは優秀な秘書です。以下の【OCRテキスト】を読み取り、JSONフォーマットで情報を抽出してください。
+        // OCRテキストを制限（1Bモデルはコンテキスト処理が遅いため）
+        val trimmedOcr = if (ocrText.length > MAX_OCR_LENGTH) {
+            ocrText.take(MAX_OCR_LENGTH) + "..."
+        } else {
+            ocrText
+        }
+        Log.d(TAG, "Analyze input (${trimmedOcr.length} chars): ${trimmedOcr.take(80)}...")
 
-【絶対のルール】
-1. "title": テキストの一番上の行をそのまま使うのではなく、内容全体を読んで15文字以内の「分かりやすいタイトル」をあなたが新しく考えてください。
-2. "summary": OCRテキストの誤字や改行のおかしな部分を修正し、人間が読みやすいように要約した文章を必ず書いてください。
-3. "date", "start_time", "end_time" は見つからなければ "" (空文字) にしてください。
-4. 必ずJSON形式のみを返してください。説明文やMarkdown装飾は不要です。
+        // シンプルなプロンプト（1Bモデル向けに最適化）
+        val systemPrompt = """Extract schedule info from OCR text. Return ONLY a JSON object:
+{"title":"短いタイトル","date":"YYYY-MM-DD","start_time":"HH:mm","end_time":"HH:mm","summary":"要約"}
+If not found, use empty string "". No explanation, JSON only."""
 
-【出力の例】
-{"title":"保護者会のお知らせ","date":"2026-04-25","start_time":"13:00","end_time":"15:00","summary":"来週土曜日に体育館で保護者会が開催されます。スリッパを持参してください。"}"""
-
-        val userMessage = "以下のOCR読み取りテキストから予定情報をJSON形式で抽出してください:\n\n$ocrText"
+        val userMessage = trimmedOcr
 
         try {
-            val conversationConfig = ConversationConfig(
-                systemInstruction = Contents.of(systemPrompt),
-                samplerConfig = SamplerConfig(
-                    topK = 5,
-                    topP = 0.9,
-                    temperature = 0.3
-                )
-            )
-            currentEngine.createConversation(conversationConfig).use { conversation ->
-                val response = conversation.sendMessage(userMessage)
-                val result = response.toString()
-                Log.d(TAG, "LLM Response: $result")
-                result
+            // タイムアウト付きで推論実行
+            val result = withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
+                try {
+                    val conversationConfig = ConversationConfig(
+                        systemInstruction = Contents.of(systemPrompt),
+                        samplerConfig = SamplerConfig(
+                            topK = 5,
+                            topP = 0.9,
+                            temperature = 0.2
+                        )
+                    )
+                    currentEngine.createConversation(conversationConfig).use { conversation ->
+                        // ストリーミングで結果を収集（キャンセル可能）
+                        val sb = StringBuilder()
+                        conversation.sendMessageAsync(userMessage)
+                            .collect { chunk ->
+                                sb.append(chunk.toString())
+                            }
+                        sb.toString()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "LLM inference error", e)
+                    null
+                }
             }
+
+            if (result == null) {
+                Log.w(TAG, "LLM inference timed out after ${INFERENCE_TIMEOUT_MS / 1000}s")
+                return@withContext null
+            }
+
+            Log.d(TAG, "LLM Response: $result")
+            result
         } catch (e: Exception) {
-            Log.e(TAG, "LLM inference error", e)
+            Log.e(TAG, "Analyze error", e)
             null
         }
     }
 
     /**
-     * 汎用のLLM推論。プロンプトをそのまま渡してレスポンスを得る。
-     * チャット意図解析など、OCR以外の用途に使用。
+     * 汎用のLLM推論。タイムアウト付き。
      */
     suspend fun generateResponse(prompt: String): String? = withContext(Dispatchers.IO) {
         val currentEngine = engine ?: run {
@@ -145,21 +166,36 @@ object AiEngineManager {
         }
 
         try {
-            val conversationConfig = ConversationConfig(
-                samplerConfig = SamplerConfig(
-                    topK = 10,
-                    topP = 0.95,
-                    temperature = 0.5
-                )
-            )
-            currentEngine.createConversation(conversationConfig).use { conversation ->
-                val response = conversation.sendMessage(prompt)
-                val result = response.toString()
-                Log.d(TAG, "LLM GenerateResponse: ${result.take(200)}")
-                result
+            val result = withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
+                try {
+                    val conversationConfig = ConversationConfig(
+                        samplerConfig = SamplerConfig(
+                            topK = 10,
+                            topP = 0.95,
+                            temperature = 0.5
+                        )
+                    )
+                    currentEngine.createConversation(conversationConfig).use { conversation ->
+                        val sb = StringBuilder()
+                        conversation.sendMessageAsync(prompt)
+                            .collect { chunk -> sb.append(chunk.toString()) }
+                        sb.toString()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "LLM generateResponse error", e)
+                    null
+                }
             }
+
+            if (result == null) {
+                Log.w(TAG, "generateResponse timed out")
+                return@withContext null
+            }
+
+            Log.d(TAG, "LLM GenerateResponse: ${result.take(200)}")
+            result
         } catch (e: Exception) {
-            Log.e(TAG, "LLM generateResponse error", e)
+            Log.e(TAG, "generateResponse error", e)
             null
         }
     }
