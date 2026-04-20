@@ -124,12 +124,42 @@ object AiEngineManager {
             )
             currentEngine.createConversation(conversationConfig).use { conversation ->
                 val response = conversation.sendMessage(userMessage)
-                val result = response.text
+                val result = response.toString()
                 Log.d(TAG, "LLM Response: $result")
                 result
             }
         } catch (e: Exception) {
             Log.e(TAG, "LLM inference error", e)
+            null
+        }
+    }
+
+    /**
+     * 汎用のLLM推論。プロンプトをそのまま渡してレスポンスを得る。
+     * チャット意図解析など、OCR以外の用途に使用。
+     */
+    suspend fun generateResponse(prompt: String): String? = withContext(Dispatchers.IO) {
+        val currentEngine = engine ?: run {
+            Log.e(TAG, "Engine not loaded. Call loadEngine() first.")
+            return@withContext null
+        }
+
+        try {
+            val conversationConfig = ConversationConfig(
+                samplerConfig = SamplerConfig(
+                    topK = 10,
+                    topP = 0.95,
+                    temperature = 0.5
+                )
+            )
+            currentEngine.createConversation(conversationConfig).use { conversation ->
+                val response = conversation.sendMessage(prompt)
+                val result = response.toString()
+                Log.d(TAG, "LLM GenerateResponse: ${result.take(200)}")
+                result
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "LLM generateResponse error", e)
             null
         }
     }
