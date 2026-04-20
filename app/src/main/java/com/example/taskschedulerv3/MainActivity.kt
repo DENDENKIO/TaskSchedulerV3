@@ -239,16 +239,10 @@ fun TaskSchedulerApp() {
             val draftVm: QuickDraftViewModel = viewModel()
             val allTags by listVm.allTags.collectAsState()
             
-            // AI設定を取得
-            val aiEnabled by AiPreferences.getAiEnabled(context).collectAsState(initial = false)
-            val modelReady = AiModelManager.checkModelExists(context)
-            val useAi = aiEnabled && modelReady
-
             QuickDraftCaptureSheet(
                 viewModel = draftVm,
                 allTags = allTags,
                 autoMode = uiVm.quickDraftAutoMode,
-                useAi = useAi,
                 onNavigateToEdit = { draftId ->
                     navController.navigate(Screen.QuickDraftEdit.createRoute(draftId))
                 },

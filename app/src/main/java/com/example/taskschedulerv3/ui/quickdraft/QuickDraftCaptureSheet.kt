@@ -30,26 +30,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
-import com.example.taskschedulerv3.data.model.Tag
-import com.example.taskschedulerv3.util.AiTextExtractor
-import com.example.taskschedulerv3.util.PhotoFileManager
-import java.io.File
+import com.example.taskschedulerv3.ui.settings.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickDraftCaptureSheet(
     viewModel: QuickDraftViewModel = viewModel(),
+    settingsVm: SettingsViewModel = viewModel(),
     allTags: List<Tag>,
     autoMode: Boolean = false,
-    useAi: Boolean = false,
     onNavigateToEdit: (Int) -> Unit = {},
     onSaveFallback: (photoPath: String?, tagIds: List<Int>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val isAiProcessing by viewModel.isAiProcessing.collectAsState()
+    val useAi by settingsVm.aiEnabled.collectAsState()
 
     var showCloseConfirmation by remember { mutableStateOf(false) }
     var sheetHeight by remember { mutableFloatStateOf(0f) }

@@ -102,28 +102,54 @@ class QuickDraftViewModel(app: Application) : AndroidViewModel(app) {
             if (finalOcrText.isNotBlank()) {
                 val jsonResult = AiTextExtractor.extractScheduleInfo(finalOcrText)
                 
-                // 3. JSONパースとデータ抽出
+                // 3. AIのテキストからデータを強制抽出（JSONが崩れていてもエラーにしない強力な手法）
                 if (!jsonResult.isNullOrBlank()) {
                     try {
-                        val json = JSONObject(jsonResult)
-                        
-                        // --- タイトルの取得をより確実にする ---
-                        val aiTitle = json.optString("title", "").trim()
-                        // AIがタイトルを生成できた場合のみ上書き（"null"という文字列が返ってきた場合も弾く）
-                        if (aiTitle.isNotBlank() && aiTitle.lowercase() != "null") {
-                            finalTitle = aiTitle
+                        // "title": "○○" の ○○ の部分だけを正規表現で狙い撃ちする
+                        val titleMatch = Regex("\"title\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                        if (titleMatch != null) {
+                            val aiTitle = titleMatch.groupValues[1].trim()
+                            if (aiTitle.isNotBlank() && aiTitle.lowercase() != "null") {
+                                finalTitle = aiTitle
+                            }
                         }
-                        // ------------------------------------
 
-                        aiDate = json.optString("date", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
-                        aiStartTime = json.optString("start_time", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
-                        aiEndTime = json.optString("end_time", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
-                        aiSummary = json.optString("summary", "").takeIf { it.isNotBlank() && it.lowercase() != "null" }
-                        
-                        Log.d("QuickDraftViewModel", "AI Parsed Data: $json")
-                        Log.d("QuickDraftViewModel", "Final Title set to: $finalTitle") // デバッグ用ログ
+                        val dateMatch = Regex("\"date\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                        if (dateMatch != null) {
+                            val extracted = dateMatch.groupValues[1].trim()
+                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                aiDate = extracted
+                            }
+                        }
+
+                        val startMatch = Regex("\"start_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                        if (startMatch != null) {
+                            val extracted = startMatch.groupValues[1].trim()
+                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                aiStartTime = extracted
+                            }
+                        }
+
+                        val endMatch = Regex("\"end_time\"\\s*:\\s*\"(.*?)\"").find(jsonResult)
+                        if (endMatch != null) {
+                            val extracted = endMatch.groupValues[1].trim()
+                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                aiEndTime = extracted
+                            }
+                        }
+
+                        // summaryは改行が含まれることがあるため、少し幅広く抽出
+                        val summaryMatch = Regex("\"summary\"\\s*:\\s*\"([\\s\\S]*?)\"").find(jsonResult)
+                        if (summaryMatch != null) {
+                            val extracted = summaryMatch.groupValues[1].trim()
+                            if (extracted.isNotBlank() && extracted.lowercase() != "null") {
+                                aiSummary = extracted
+                            }
+                        }
+
+                        Log.d("QuickDraftViewModel", "AI Regex Parsed Title: $finalTitle")
                     } catch (e: Exception) {
-                        Log.e("QuickDraftViewModel", "JSON Parse Error", e)
+                        Log.e("QuickDraftViewModel", "Regex Parse Error", e)
                     }
                 }
             }

@@ -144,15 +144,10 @@ fun QuickDraftListScreen(
 
     if (showCaptureSheet) {
         val allTags by listVm.allTags.collectAsState()
-        val context = LocalContext.current
-        val aiEnabled by AiPreferences.getAiEnabled(context).collectAsState(initial = false)
-        val modelReady = AiModelManager.checkModelExists(context)
-        val useAi = aiEnabled && modelReady
 
         QuickDraftCaptureSheet(
             viewModel = vm,
             allTags = allTags,
-            useAi = useAi,
             onNavigateToEdit = { draftId ->
                 navController.navigate(Screen.QuickDraftEdit.createRoute(draftId))
             },
