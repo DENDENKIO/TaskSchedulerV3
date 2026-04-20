@@ -1,6 +1,5 @@
 package com.example.taskschedulerv3.ui.aichat
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,11 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 
@@ -75,13 +71,13 @@ fun AiChatScreen(
                         value = inputText,
                         onValueChange = { inputText = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("予定を聞く...") },
+                        placeholder = { Text("なんでも聞いてください...") },
                         shape = RoundedCornerShape(24.dp),
                         maxLines = 3,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(
                             onSend = {
-                                if (inputText.isNotBlank()) {
+                                if (inputText.isNotBlank() && !isTyping) {
                                     vm.sendMessage(inputText)
                                     inputText = ""
                                 }
@@ -91,13 +87,14 @@ fun AiChatScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     FilledIconButton(
                         onClick = {
-                            if (inputText.isNotBlank()) {
+                            if (inputText.isNotBlank() && !isTyping) {
                                 vm.sendMessage(inputText)
                                 inputText = ""
                             }
                         },
                         modifier = Modifier.size(48.dp),
-                        shape = CircleShape
+                        shape = CircleShape,
+                        enabled = !isTyping
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "送信")
                     }
@@ -144,7 +141,7 @@ fun ChatBubble(message: ChatMessage) {
         Surface(
             shape = shape,
             color = bgColor,
-            modifier = Modifier.widthIn(max = 280.dp)
+            modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Text(
                 text = message.text,
@@ -167,7 +164,7 @@ fun ChatTypingIndicator() {
             color = MaterialTheme.colorScheme.secondaryContainer
         ) {
             Text(
-                text = "考え中...",
+                text = "AIが考え中...",
                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 style = MaterialTheme.typography.bodyMedium

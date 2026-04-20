@@ -20,6 +20,9 @@ object AiModelManager {
     private const val MODEL_DOWNLOAD_URL =
         "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
 
+    // ダウンロード済みと見なすファイルサイズの閾値（1 GB以上であること）
+    private const val MIN_MODEL_SIZE_BYTES = 1_000_000_000L
+
     sealed class ModelState {
         object NotDownloaded : ModelState()
         data class Downloading(val progress: Int) : ModelState()
@@ -37,7 +40,7 @@ object AiModelManager {
 
     fun checkModelExists(context: Context): Boolean {
         val file = getModelFile(context)
-        return file.exists() && file.length() > 1_000_000_000
+        return file.exists() && file.length() > MIN_MODEL_SIZE_BYTES
     }
 
     fun getModelFile(context: Context): File {
@@ -153,9 +156,10 @@ object AiModelManager {
             }
             connection.disconnect()
 
-            if (tmpFile.length() < 1_000_000_000) {
+            // Gemma 4 E2B は約2.58 GBなので1 GB以上を必須とする
+            if (tmpFile.length() < MIN_MODEL_SIZE_BYTES) {
                 tmpFile.delete()
-                _state.value = ModelState.Error("ダウンロードファイルが不完全です（サイズ不足）")
+                _state.value = ModelState.Error("ダウンロードファイルが不完全です（サイズ: ${tmpFile.length() / (1024 * 1024)} MB、最低1 GB必要）")
                 return@withContext false
             }
 
@@ -178,9 +182,12 @@ object AiModelManager {
     suspend fun deleteModel(context: Context) = withContext(Dispatchers.IO) {
         val file = getModelFile(context)
         if (file.exists()) file.delete()
-        // 旧モデル（Gemma3）が残っている場合も削除
+        // 旧モデル（Gemma 3 1B）が残っている場合も削除
         val oldFile = File(File(context.filesDir, MODEL_DIR), "gemma3-1b-it-int4.litertlm")
-        if (oldFile.exists()) oldFile.delete()
+        if (oldFile.exists()) {
+            oldFile.delete()
+            Log.d(TAG, "旧モデル gemma3-1b-it-int4.litertlm を削除しました")
+        }
         _state.value = ModelState.NotDownloaded
     }
 }

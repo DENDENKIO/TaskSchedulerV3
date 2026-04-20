@@ -100,7 +100,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
             onDismissRequest = { showAiOnConfirmDialog = false },
             title = { Text("AIモデルのダウンロード") },
             text = {
-                Text("AI機能を使用するには、約2.6GBのモデルデータをダウンロードする必要があります。\n\nWi-Fi環境でのダウンロードを推奨します。")
+                Text("AI機能を使用するには、約2.6GBのモデルデータ（Gemma 4 E2B）をダウンロードする必要があります。\n\nWi-Fi環境でのダウンロードを推奨します。\nストレージに約3GBの空きが必要です。")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -266,7 +266,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
                 },
                 supportingContent = {
                     Text(
-                        "写真から予定の日付・タイトル・内容を自動認識します",
+                        "写真から予定の自動認識、AIチャットアシスタントで使用します",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -289,7 +289,7 @@ fun SettingsScreen(navController: NavController, vm: SettingsViewModel = viewMod
                             )
                         is AiModelManager.ModelState.Ready ->
                             Text(
-                                "モデルダウンロード済み（${vm.getModelSizeMB()}MB）",
+                                "モデルダウンロード済み（≈${vm.getModelSizeMB()}MB）",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         is AiModelManager.ModelState.Error ->

@@ -15,18 +15,27 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * LiteRT-LM Engine のシングルトン管理（Gemma 4 E2B 対応版）
+ * LiteRT-LM Engine のシングルトン管理。
+ * Gemma 4 E2B (≈2.58 GB) 対応。
  *
- * - loadEngine: モデルをRAMへロード（初回約5-15秒）
- * - analyze: OCRテキストからJSON形式で日付・タイトル・要約を抽出（90秒タイムアウト付）
+ * - loadEngine: モデルをRAMへロード
+ * - analyze: OCRテキストからJSON形式で日付・タイトル・要約を抽出（タイムアウト付）
+ * - generateResponse: 汎用LLM推論（JSON抽出等）
+ * - generateChatResponse: 自由会話応答生成
  * - releaseEngine: RAM解放
- * - generateResponse: 汎用のLLM推論（90秒タイムアウト付）
  */
 object AiEngineManager {
 
     private const val TAG = "AiEngineManager"
-    private const val INFERENCE_TIMEOUT_MS = 90_000L  // 90秒タイムアウト
-    private const val MAX_OCR_LENGTH = 1000           // OCR入力の最大文字数
+
+    // Gemma 4 E2B は Dimensity 7050 で初回推論に最大30秒程度かかるため余裕を持って90秒
+    private const val INFERENCE_TIMEOUT_MS = 90_000L
+
+    // Gemma 4 E2B は32Kコンテキスト対応。OCR入力を1000文字まで拡大
+    private const val MAX_OCR_LENGTH = 1000
+
+    // モデルファイルの最小サイズ（1 GB以上であること）
+    private const val MIN_MODEL_FILE_SIZE = 1_000_000_000L
 
     private var engine: Engine? = null
     private val mutex = Mutex()
@@ -39,8 +48,8 @@ object AiEngineManager {
     fun getInitError(): String? = initError
 
     /**
-     * Engine をロードする。既にロード済みなら何もしない。
-     * 必ずバックグラウンドスレッドから呼ぶこと（初回約5-15秒かかる）。
+     * Engine をロードする。
+     * Gemma 4 E2B のロードには DOOGEE S200 で約5〜15秒を要する。
      */
     suspend fun loadEngine(context: Context) = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -55,13 +64,13 @@ object AiEngineManager {
                     Log.e(TAG, initError!!)
                     return@withLock
                 }
-                if (modelFile.length() < 1_000_000_000) {
-                    initError = "モデルファイルが破損しています（サイズ: ${modelFile.length() / (1024 * 1024)} MB）"
+                if (modelFile.length() < MIN_MODEL_FILE_SIZE) {
+                    initError = "モデルファイルが破損しています（サイズ: ${modelFile.length() / (1024 * 1024)} MB、最低1 GB必要）"
                     Log.e(TAG, initError!!)
                     return@withLock
                 }
 
-                Log.d(TAG, "Loading Gemma 4 E2B: $modelPath (${modelFile.length() / 1024 / 1024} MB)")
+                Log.d(TAG, "Loading Gemma 4 E2B model: $modelPath (${modelFile.length() / 1024 / 1024} MB)")
 
                 val config = EngineConfig(
                     modelPath = modelPath,
@@ -95,14 +104,11 @@ object AiEngineManager {
     }
 
     /**
-     * OCRテキストをLLMに渡して構造化データを取得する。
+     * OCRテキストをLLMに渡して構造化データ(JSON)を取得する。
+     * 90秒タイムアウト付き。OCRテキストは1000文字に制限。
      *
-     * - 90秒タイムアウト付き（タイムアウト時はnullを返す）
-     * - OCRテキストは1000文字に制限
-     * - sendMessageAsync（Flow）を使用しコルーチンキャンセルに対応
-     *
-     * @param ocrText ML Kit OCRで取得した生テキスト
-     * @return LLMからのレスポンス文字列（JSON形式を期待）、失敗時はnull
+     * 返値: JSON文字列（例: {"title":"会議","date":"2026-05-01","start_time":"14:00","end_time":"16:00","summary":"..."}）
+     * 失敗時は null を返す（呼び出し元で OcrTextParser へフォールバック）
      */
     suspend fun analyze(ocrText: String): String? = withContext(Dispatchers.IO) {
         val currentEngine = engine ?: run {
@@ -116,19 +122,19 @@ object AiEngineManager {
         } else {
             ocrText
         }
-        Log.d(TAG, "Analyze input (${trimmedOcr.length} chars)")
+        Log.d(TAG, "Analyze input (${trimmedOcr.length} chars): ${trimmedOcr.take(100)}...")
 
-        // Gemma 4 E2B向けプロンプト（日本語対応、シンプル）
-        val systemPrompt = """あなたはOCRテキストから予定情報を抽出するAIです。
-以下のJSON形式のみを出力してください。説明文は不要です。
+        // Gemma 4 E2B は日本語理解力が高いため、日本語プロンプトで精度向上
+        val systemPrompt = """あなたは写真のOCRテキストから予定情報を抽出するアシスタントです。
+以下のJSON形式のみを出力してください。他のテキストは一切含めないでください。
 
-{"title":"15文字以内の短いタイトル","date":"YYYY-MM-DD","start_time":"HH:mm","end_time":"HH:mm","summary":"内容の要約"}
+{"title":"短いタイトル（15文字以内）","date":"YYYY-MM-DD","start_time":"HH:mm","end_time":"HH:mm","summary":"内容の要約（50文字以内）"}
 
 ルール:
-- titleはOCR内容を要約した短いタイトルをあなたが考えてください
-- summaryはOCRテキストの内容を人間が読みやすいように要約してください
-- 見つからない項目は空文字""にしてください
-- JSON以外は出力しないでください"""
+- titleは予定の内容を端的に表す短いフレーズにする
+- 該当する情報がない場合は空文字""にする
+- 日付や時刻のフォーマットは必ず上記形式に従う
+- 出力はJSONのみ。説明文やMarkdown装飾は不要"""
 
         try {
             val result = withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
@@ -136,9 +142,9 @@ object AiEngineManager {
                     val conversationConfig = ConversationConfig(
                         systemInstruction = Contents.of(systemPrompt),
                         samplerConfig = SamplerConfig(
-                            topK = 10,
+                            topK = 5,
                             topP = 0.9,
-                            temperature = 0.3
+                            temperature = 0.2  // JSON出力の安定性のため低めに設定
                         )
                     )
                     currentEngine.createConversation(conversationConfig).use { conversation ->
@@ -150,7 +156,7 @@ object AiEngineManager {
                         sb.toString()
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "LLM inference error", e)
+                    Log.e(TAG, "LLM inference error in analyze()", e)
                     null
                 }
             }
@@ -169,8 +175,8 @@ object AiEngineManager {
     }
 
     /**
-     * 汎用のLLM推論。プロンプトをそのまま渡してレスポンスを得る。
-     * 90秒タイムアウト付き。
+     * 汎用のLLM推論（JSON抽出・意図解析など構造化出力向け）。
+     * タイムアウト付き。
      */
     suspend fun generateResponse(prompt: String): String? = withContext(Dispatchers.IO) {
         val currentEngine = engine ?: run {
@@ -185,7 +191,7 @@ object AiEngineManager {
                         samplerConfig = SamplerConfig(
                             topK = 10,
                             topP = 0.95,
-                            temperature = 0.5
+                            temperature = 0.3  // 構造化出力のため低温
                         )
                     )
                     currentEngine.createConversation(conversationConfig).use { conversation ->
@@ -209,6 +215,60 @@ object AiEngineManager {
             result
         } catch (e: Exception) {
             Log.e(TAG, "generateResponse error", e)
+            null
+        }
+    }
+
+    /**
+     * 自由会話応答生成（AIチャット画面用）。
+     * systemPrompt でアシスタントのペルソナ・コンテキストを設定し、
+     * ユーザーの自由な質問に対して自然な日本語で応答する。
+     *
+     * @param userMessage ユーザーの入力テキスト
+     * @param systemPrompt アシスタントの役割定義（コンテキスト）
+     * @return 応答テキスト。失敗時は null
+     */
+    suspend fun generateChatResponse(
+        userMessage: String,
+        systemPrompt: String
+    ): String? = withContext(Dispatchers.IO) {
+        val currentEngine = engine ?: run {
+            Log.e(TAG, "Engine not loaded. Call loadEngine() first.")
+            return@withContext null
+        }
+
+        try {
+            val result = withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
+                try {
+                    val conversationConfig = ConversationConfig(
+                        systemInstruction = Contents.of(systemPrompt),
+                        samplerConfig = SamplerConfig(
+                            topK = 40,
+                            topP = 0.95,
+                            temperature = 0.7  // 自由会話のため高めに設定
+                        )
+                    )
+                    currentEngine.createConversation(conversationConfig).use { conversation ->
+                        val sb = StringBuilder()
+                        conversation.sendMessageAsync(userMessage)
+                            .collect { chunk -> sb.append(chunk.toString()) }
+                        sb.toString()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "LLM generateChatResponse error", e)
+                    null
+                }
+            }
+
+            if (result == null) {
+                Log.w(TAG, "generateChatResponse timed out after ${INFERENCE_TIMEOUT_MS / 1000}s")
+                return@withContext null
+            }
+
+            Log.d(TAG, "LLM ChatResponse (${result.length} chars): ${result.take(200)}")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "generateChatResponse error", e)
             null
         }
     }
