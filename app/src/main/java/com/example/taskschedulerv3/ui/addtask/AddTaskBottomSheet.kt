@@ -133,7 +133,10 @@ fun AddTaskBottomSheet(
     // 破棄確認ダイアログ
     if (showCloseConfirmation) {
         AlertDialog(
-            onDismissRequest = { showCloseConfirmation = false },
+            onDismissRequest = { 
+                showCloseConfirmation = false 
+                scope.launch { sheetState.show() } // 状態リセット
+            },
             title = { Text("内容の破棄") },
             text = { Text("入力中の内容は保存されません。破棄して閉じますか？") },
             confirmButton = {
@@ -145,7 +148,10 @@ fun AddTaskBottomSheet(
                 ) { Text("破棄", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { showCloseConfirmation = false }) { Text("キャンセル") }
+                TextButton(onClick = { 
+                    showCloseConfirmation = false 
+                    scope.launch { sheetState.show() } // 状態リセット
+                }) { Text("キャンセル") }
             }
         )
     }

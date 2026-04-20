@@ -203,7 +203,10 @@ fun QuickDraftCaptureSheet(
 
     if (showCloseConfirmation) {
         AlertDialog(
-            onDismissRequest = { showCloseConfirmation = false },
+            onDismissRequest = { 
+                showCloseConfirmation = false 
+                scope.launch { draftSheetState.show() } // 状態リセット
+            },
             title = { Text("入力内容の破棄") },
             text = { Text("仮登録を中断して閉じますか？") },
             confirmButton = {
@@ -212,7 +215,10 @@ fun QuickDraftCaptureSheet(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCloseConfirmation = false }) { Text("キャンセル") }
+                TextButton(onClick = { 
+                    showCloseConfirmation = false 
+                    scope.launch { draftSheetState.show() } // 状態リセット
+                }) { Text("キャンセル") }
             }
         )
     }
