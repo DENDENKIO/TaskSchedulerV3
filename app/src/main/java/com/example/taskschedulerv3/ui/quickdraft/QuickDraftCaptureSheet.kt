@@ -18,7 +18,17 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,7 +40,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
+import coil.compose.AsyncImage
+import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.ui.settings.SettingsViewModel
+import com.example.taskschedulerv3.util.AiTextExtractor
+import com.example.taskschedulerv3.util.PhotoFileManager
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,13 +56,14 @@ fun QuickDraftCaptureSheet(
     settingsVm: SettingsViewModel = viewModel(),
     allTags: List<Tag>,
     autoMode: Boolean = false,
-    onNavigateToEdit: (Int) -> Unit = {},
+    onNavigateToEdit: (Int) -> Unit = {}, // 既存のナビゲーション用コールバックを保持
     onSaveFallback: (photoPath: String?, tagIds: List<Int>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val isAiProcessing by viewModel.isAiProcessing.collectAsState()
     val useAi by settingsVm.aiEnabled.collectAsState()
+    val navigateToDraftId by viewModel.navigateToDraftId.collectAsState()
 
     var showCloseConfirmation by remember { mutableStateOf(false) }
     var sheetHeight by remember { mutableFloatStateOf(0f) }
@@ -55,11 +73,11 @@ fun QuickDraftCaptureSheet(
     var tempCameraFile by remember { mutableStateOf<File?>(null) }
     var selectedTagIds by remember { mutableStateOf(setOf<Int>()) }
 
-    // ─── 【新規追加】古い写真を削除して新しい写真をセットする関数 ───
+    // 古い写真を削除して新しい写真をセットする関数
     fun setAndCleanUpPhoto(newPath: String?) {
         if (capturedPhotoPath != null && capturedPhotoPath != newPath) {
             try {
-                File(capturedPhotoPath!!).delete() // 前の写真をストレージから消す
+                File(capturedPhotoPath!!).delete()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -67,9 +85,8 @@ fun QuickDraftCaptureSheet(
         capturedPhotoPath = newPath
         capturedPhotoUri = newPath?.let { PhotoFileManager.pathToUri(it) }
     }
-    // ───────────────────────────────────────────
 
-    // ===== AIモデルのライフサイクル管理 =====
+    // AIモデルのライフサイクル管理
     LaunchedEffect(useAi) {
         if (useAi) {
             AiTextExtractor.initialize(context)
@@ -94,7 +111,6 @@ fun QuickDraftCaptureSheet(
                         viewModel.createFromCameraWithAi(context, path, emptyList())
                     } else {
                         onSaveFallback(path, emptyList())
-                        onDismiss()
                     }
                 }
             }
@@ -133,38 +149,52 @@ fun QuickDraftCaptureSheet(
         if (autoMode && capturedPhotoUri == null) launchCamera()
     }
     
-    // AI処理完了を検知してシートを閉じる
-    LaunchedEffect(isAiProcessing) {
-        if (!isAiProcessing && capturedPhotoPath != null && autoMode) {
-            onDismiss()
-        }
-    }
-
-    // 遷移の監視
-    val navigateToDraftId by viewModel.navigateToDraftId.collectAsState()
-    LaunchedEffect(navigateToDraftId) {
-        navigateToDraftId?.let { draftId ->
-            onNavigateToEdit(draftId)
-            viewModel.clearNavigation()
-            onDismiss()
-        }
-    }
+    // ==========================================
+    // 修正：シートを安全に閉じるための仕組み（アニメーションを待ってから消す）
+    // ==========================================
+    val scope = rememberCoroutineScope()
+    var forceClose by remember { mutableStateOf(false) }
 
     val draftSheetStateRef = remember { mutableStateOf<SheetState?>(null) }
     val draftSheetState = rememberModalBottomSheetState(
         confirmValueChange = { newValue ->
-            if (newValue == SheetValue.Hidden && !isAiProcessing) {
+            if (newValue == SheetValue.Hidden && !isAiProcessing && !forceClose) {
                 val currentOffset = draftSheetStateRef.value?.requireOffset() ?: 0f
                 if (currentOffset > sheetHeight * 0.8f) {
                     showCloseConfirmation = true
                 }
                 false
             } else {
-                !isAiProcessing 
+                !isAiProcessing
             }
         }
     )
     SideEffect { draftSheetStateRef.value = draftSheetState }
+
+    // アニメーションを完了させてから安全に破棄する関数
+    fun closeSheetSafely() {
+        scope.launch {
+            forceClose = true
+            try { draftSheetState.hide() } catch (e: Exception) { /* ignore */ }
+            onDismiss()
+        }
+    }
+
+    // 保存完了を検知してシートを閉じる
+    LaunchedEffect(isAiProcessing) {
+        if (!isAiProcessing && capturedPhotoPath != null && autoMode) {
+            closeSheetSafely()
+        }
+    }
+
+    // 編集画面へのナビゲーション監視
+    LaunchedEffect(navigateToDraftId) {
+        navigateToDraftId?.let { draftId ->
+            onNavigateToEdit(draftId) // 編集画面へ自動遷移
+            viewModel.clearNavigation()
+            closeSheetSafely()
+        }
+    }
 
     if (showCloseConfirmation) {
         AlertDialog(
@@ -172,7 +202,7 @@ fun QuickDraftCaptureSheet(
             title = { Text("入力内容の破棄") },
             text = { Text("仮登録を中断して閉じますか？") },
             confirmButton = {
-                TextButton(onClick = { showCloseConfirmation = false; onDismiss() }) { 
+                TextButton(onClick = { showCloseConfirmation = false; closeSheetSafely() }) { 
                     Text("破棄", color = MaterialTheme.colorScheme.error) 
                 }
             },
@@ -183,7 +213,9 @@ fun QuickDraftCaptureSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = { showCloseConfirmation = true },
+        onDismissRequest = { 
+            if (!isAiProcessing) showCloseConfirmation = true 
+        },
         sheetState = draftSheetState,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
@@ -206,7 +238,7 @@ fun QuickDraftCaptureSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        if (useAi) "仮登録 (AI解析ON \u2728)" else "仮登録",
+                        if (useAi) "仮登録 (AI解析ON ✨)" else "仮登録",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = if (useAi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
@@ -216,10 +248,9 @@ fun QuickDraftCaptureSheet(
                         onClick = {
                             if (useAi && capturedPhotoPath != null) {
                                 viewModel.createFromCameraWithAi(context, capturedPhotoPath!!, selectedTagIds.toList())
-                                if (!autoMode) onDismiss() // autoModeでない場合は即座に閉じる（処理はバックグラウンド）
                             } else {
                                 onSaveFallback(capturedPhotoPath, selectedTagIds.toList())
-                                onDismiss()
+                                closeSheetSafely()
                             }
                         },
                         shape = RoundedCornerShape(12.dp)
@@ -292,9 +323,7 @@ fun QuickDraftCaptureSheet(
                     ) {
                         OutlinedButton(
                             onClick = { launchCamera() },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(80.dp),
+                            modifier = Modifier.weight(1f).height(80.dp),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -309,9 +338,7 @@ fun QuickDraftCaptureSheet(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(80.dp),
+                            modifier = Modifier.weight(1f).height(80.dp),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -375,7 +402,7 @@ fun QuickDraftCaptureSheet(
                     modifier = Modifier
                         .matchParentSize()
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
-                        .clickable(enabled = false) {}, 
+                        .clickable(enabled = false) {},
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {

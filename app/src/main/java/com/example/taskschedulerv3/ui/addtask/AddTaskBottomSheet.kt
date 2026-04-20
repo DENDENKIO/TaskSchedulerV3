@@ -12,12 +12,22 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.ui.components.TagSelector
 import com.example.taskschedulerv3.ui.photo.OcrResultDialog
@@ -76,10 +86,17 @@ fun AddTaskBottomSheet(
     // 初期化中の循環参照を避けるための参照保持用
     val sheetStateRef = remember { mutableStateOf<SheetState?>(null) }
 
+    // ==========================================
+    // 修正：シートを安全に閉じるための仕組み（アニメーションを待ってから消す）
+    // ==========================================
+    val scope = rememberCoroutineScope()
+    var forceClose by remember { mutableStateOf(false) }
+
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
         confirmValueChange = { newValue ->
-            if (newValue == SheetValue.Hidden) {
+            if (newValue == SheetValue.Hidden && !forceClose) {
+                // スワイプで閉じようとしたら一旦ブロックして確認ダイアログを出す
                 val currentOffset = sheetStateRef.value?.requireOffset() ?: 0f
                 val threshold = sheetHeight * 0.8f
                 
@@ -95,6 +112,15 @@ fun AddTaskBottomSheet(
     // 実体を紐づける
     SideEffect { sheetStateRef.value = sheetState }
 
+    // アニメーションを完了させてから安全に破棄する関数
+    fun closeSheetSafely() {
+        scope.launch {
+            forceClose = true
+            try { sheetState.hide() } catch (e: Exception) { /* ignore */ }
+            onDismiss()
+        }
+    }
+
     LaunchedEffect(taskId) {
         if (taskId != null) {
             vm.loadTask(taskId)
@@ -104,7 +130,9 @@ fun AddTaskBottomSheet(
     }
 
     LaunchedEffect(saveSuccess) {
-        if (saveSuccess) onDismiss()
+        if (saveSuccess) {
+            closeSheetSafely()
+        }
     }
 
     // 破棄確認ダイアログ
@@ -117,7 +145,7 @@ fun AddTaskBottomSheet(
                 TextButton(
                     onClick = {
                         showCloseConfirmation = false
-                        onDismiss()
+                        closeSheetSafely()
                     }
                 ) { Text("破棄", color = MaterialTheme.colorScheme.error) }
             },
