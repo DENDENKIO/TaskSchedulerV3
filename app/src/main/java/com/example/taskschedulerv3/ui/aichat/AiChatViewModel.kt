@@ -864,11 +864,31 @@ $rawMemo
     // =========================================================
     private suspend fun registerTask(d: DraftTaskData): Int = withContext(Dispatchers.IO) {
         val now = LocalDateTime.now()
+
+        // recurrencePattern の安全な変換
+        val recPattern = if (d.scheduleType == ScheduleType.RECURRING) {
+            try {
+                RecurrencePattern.valueOf(d.recurrencePattern)
+            } catch (_: Exception) {
+                RecurrencePattern.NONE
+            }
+        } else {
+            null
+        }
+
+        // 写真パスがある場合は description に追記（Task に photoPath フィールドがないため）
+        val memoWithPhoto = if (d.photoPath != null) {
+            val base = d.memo.ifEmpty { "" }
+            if (base.isNotEmpty()) "$base\n\n📷 ${d.photoPath}" else "📷 ${d.photoPath}"
+        } else {
+            d.memo.ifEmpty { null }
+        }
+
         val task = Task(
             title = d.title.ifEmpty {
                 now.format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm")) + " 登録"
             },
-            description = d.memo.ifEmpty { null },
+            description = memoWithPhoto,
             startDate = d.startDate.ifEmpty {
                 LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
             },
@@ -876,15 +896,14 @@ $rawMemo
             startTime = d.startTime.ifEmpty { null },
             endTime = d.endTime.ifEmpty { null },
             scheduleType = if (d.isIndefinite) ScheduleType.NORMAL else d.scheduleType,
-            recurrencePattern = if (d.scheduleType == ScheduleType.RECURRING)
-                RecurrencePattern.valueOf(d.recurrencePattern) else null,
+            recurrencePattern = recPattern,
             recurrenceDays = d.recurrenceDays.ifEmpty { null },
             recurrenceEndDate = d.recurrenceEndDate.ifEmpty { null },
-            priority = 1, // 中（デフォルト）
-            notifyEnabled = true,           // 全タスク通知あり
-            notifyMinutesBefore = 1440,     // 1日前（1440分）
+            priority = 1,
+            notifyEnabled = true,
+            notifyMinutesBefore = 1440,
             isIndefinite = d.isIndefinite,
-            roadmapEnabled = false,         // 後で編集画面から追加
+            roadmapEnabled = false,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
@@ -903,7 +922,7 @@ $rawMemo
             relationDao.insert(TaskRelation(taskId1 = id1, taskId2 = id2))
         }
 
-        // 通知スケジュール（常に1日前）
+        // 通知スケジュール
         val registeredTask = taskDao.getById(taskId)
         if (registeredTask != null) {
             AlarmScheduler.scheduleForTask(getApplication(), registeredTask)

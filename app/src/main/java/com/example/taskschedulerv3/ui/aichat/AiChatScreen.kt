@@ -33,9 +33,14 @@ import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.util.PhotoFileManager
+import android.util.Log
 import java.io.File
 import java.util.Calendar
 import java.util.Locale
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // =============================================
 // メイン画面
@@ -583,7 +588,7 @@ fun RelationPickerCard(
 }
 
 // =============================================
-// 写真追加カード（カメラ＋ギャラリー対応）
+// 写真追加カード（カメラ＋ギャラリー対応）— 修正版
 // =============================================
 @Composable
 fun PhotoPickerCard(
@@ -593,18 +598,26 @@ fun PhotoPickerCard(
     onSkip: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var photoPath by remember { mutableStateOf<String?>(null) }
-    var tempPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var tempPhotoFile by remember { mutableStateOf<File?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    // カメラ用の一時ファイル情報を state で保持（リコンポジション安全）
+    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
 
     // カメラ起動結果
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && tempPhotoFile != null) {
-            val saved = PhotoFileManager.saveResizedPhotoFromFile(context, tempPhotoFile!!)
-            if (saved != null) {
-                photoPath = saved
+        val file = pendingCameraFile
+        if (success && file != null && file.exists()) {
+            isSaving = true
+            scope.launch(Dispatchers.IO) {
+                val saved = PhotoFileManager.saveResizedPhotoFromFile(context, file)
+                withContext(Dispatchers.Main) {
+                    photoPath = saved
+                    isSaving = false
+                }
             }
         }
     }
@@ -614,9 +627,13 @@ fun PhotoPickerCard(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            val saved = PhotoFileManager.saveResizedPhoto(context, uri)
-            if (saved != null) {
-                photoPath = saved
+            isSaving = true
+            scope.launch(Dispatchers.IO) {
+                val saved = PhotoFileManager.saveResizedPhoto(context, uri)
+                withContext(Dispatchers.Main) {
+                    photoPath = saved
+                    isSaving = false
+                }
             }
         }
     }
@@ -625,7 +642,14 @@ fun PhotoPickerCard(
         Text(prompt, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (photoPath != null) {
+        if (isSaving) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("写真を処理中…", fontSize = 12.sp, color = Color.Gray)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+        } else if (photoPath != null) {
             Text("写真を選択済み", fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(4.dp))
@@ -634,12 +658,15 @@ fun PhotoPickerCard(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(
                 onClick = {
-                    val result = PhotoFileManager.createTempPhotoUri(context)
-                    tempPhotoUri = result.first
-                    tempPhotoFile = result.second
-                    cameraLauncher.launch(result.first)
+                    try {
+                        val result = PhotoFileManager.createTempPhotoUri(context)
+                        pendingCameraFile = result.second
+                        cameraLauncher.launch(result.first)
+                    } catch (e: Exception) {
+                        Log.e("PhotoPickerCard", "Camera launch error", e)
+                    }
                 },
-                enabled = enabled
+                enabled = enabled && !isSaving
             ) {
                 Icon(Icons.Default.CameraAlt, contentDescription = null,
                     modifier = Modifier.size(18.dp))
@@ -648,13 +675,17 @@ fun PhotoPickerCard(
             }
             FilledTonalButton(
                 onClick = {
-                    galleryLauncher.launch(
-                        androidx.activity.result.PickVisualMediaRequest(
-                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                    try {
+                        galleryLauncher.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
                         )
-                    )
+                    } catch (e: Exception) {
+                        Log.e("PhotoPickerCard", "Gallery launch error", e)
+                    }
                 },
-                enabled = enabled
+                enabled = enabled && !isSaving
             ) {
                 Icon(Icons.Default.Photo, contentDescription = null,
                     modifier = Modifier.size(18.dp))
@@ -668,10 +699,10 @@ fun PhotoPickerCard(
             if (photoPath != null) {
                 FilledTonalButton(
                     onClick = { onPhotoSelected(photoPath) },
-                    enabled = enabled
+                    enabled = enabled && !isSaving
                 ) { Text("この写真で決定") }
             }
-            OutlinedButton(onClick = onSkip, enabled = enabled) { Text("スキップ") }
+            OutlinedButton(onClick = onSkip, enabled = enabled && !isSaving) { Text("スキップ") }
         }
     }
 }
