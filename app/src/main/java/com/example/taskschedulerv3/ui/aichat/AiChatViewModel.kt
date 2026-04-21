@@ -21,7 +21,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.time.Duration
 
 class AiChatViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -30,9 +32,10 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private val db = AppDatabase.getInstance(application)
-    private val taskDao = db.taskDao()
-    private val tagDao = db.tagDao()
     private val crossRefDao = db.taskTagCrossRefDao()
+    private val tagDao = db.tagDao()
+
+    private var missingQuestionCount = 0
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -169,14 +172,13 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     _draft.value = parsed
                     
                     if (parsed.title.isEmpty()) {
-                        _wizardStep.value = WizardStep.WAITING_ANSWER
-                        addAiMessage(ChatContent.Text("予定の名前（タイトル）は何にしますか？"))
+                        handleMissingInfo("予定の名前（タイトル）は何にしますか？")
                     } else if (parsed.startDate.isEmpty() && !parsed.isIndefinite) {
-                        _wizardStep.value = WizardStep.WAITING_ANSWER
-                        addAiMessage(ChatContent.Text("いつの予定ですか？（日付を教えてください）"))
+                        handleMissingInfo("いつの予定ですか？（日付を教えてください）")
                     } else {
-                        // 自動タグ選択
-                        autoSelectTags(parsed.title + " " + parsed.memo)
+                        // 自動タグ選択 (AI版)
+                        val suggested = suggestTagsWithAi(parsed.title + " " + parsed.memo, _allTags.value)
+                        _draft.value = _draft.value.copy(tagIds = suggested)
                         showConfirmation()
                     }
                 } catch (e: Exception) {
@@ -203,21 +205,78 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         parseTaskWithAi("現在: $currentDraft 指示: $text")
     }
 
-    private fun autoSelectTags(content: String) {
-        val tags = _allTags.value
-        val matchedIds = tags.filter { tag ->
-            content.contains(tag.name, ignoreCase = true)
-        }.map { it.id }
-        _draft.value = _draft.value.copy(tagIds = matchedIds)
+    private fun handleMissingInfo(prompt: String) {
+        missingQuestionCount++
+        if (missingQuestionCount > 3) {
+            addAiMessage(ChatContent.Text("必要な項目が揃いませんでしたが、現在の内容で確認します。"))
+            showConfirmation()
+        } else {
+            _wizardStep.value = WizardStep.WAITING_ANSWER
+            addAiMessage(ChatContent.Text(prompt))
+        }
+    }
+
+    private suspend fun suggestTagsWithAi(content: String, tags: List<Tag>): List<Int> {
+        if (!AiEngineManager.isLoaded() || tags.isEmpty()) return emptyList()
+        
+        val tagListStr = tags.joinToString("\n") { "ID: ${it.id}, Name: ${it.name}" }
+        val prompt = """
+            以下のタスク内容に最も適したタグをリストから選び、IDをJSON配列の形式（例: [1, 2]）で出力してください。
+            該当するものがない場合は空の配列 [] を返してください。
+            
+            タスク内容: $content
+            
+            タグリスト:
+            $tagListStr
+        """.trimIndent()
+
+        return try {
+            val response = withContext(Dispatchers.IO) {
+                AiEngineManager.generateResponse(prompt)
+            }
+            val match = Regex("""\[(\s*\d+\s*,?)*\]""").find(response ?: "")
+            match?.value?.let { json ->
+                Regex("""\d+""").findAll(json).map { it.value.toInt() }.toList()
+            } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun calculateNotifyMinutes(startDate: String?, startTime: String?): Int? {
+        if (startDate.isNullOrEmpty()) return null
+        return try {
+            val date = LocalDate.parse(startDate)
+            val time = if (startTime.isNullOrEmpty()) LocalTime.of(9, 0) else {
+                // HH:mm 形式か HH:mm:ss 形式かを考慮
+                val parts = startTime.split(":")
+                LocalTime.of(parts[0].toInt(), parts[1].toInt())
+            }
+            val target = LocalDateTime.of(date, time)
+            val now = LocalDateTime.now()
+            
+            if (target.isBefore(now)) return null
+            
+            val diffMinutes = Duration.between(now, target).toMinutes()
+            when {
+                diffMinutes >= 1440 -> 1440
+                diffMinutes >= 60 -> 60
+                else -> 0
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun showConfirmation() {
+        missingQuestionCount = 0 // すべて揃ったのでリセット
         _wizardStep.value = WizardStep.CONFIRM
         addAiMessage(ChatContent.Text("以下の内容でよろしいですか？"))
         addAiMessage(ChatContent.TaskConfirmation(draft = _draft.value, isActive = true))
     }
 
     fun confirmRegistration() {
+        missingQuestionCount = 0 // リセット
         viewModelScope.launch {
             _isTyping.value = true
             try {
@@ -245,6 +304,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cancelRegistration() {
+        missingQuestionCount = 0 // リセット
         resetWizard()
         addAiMessage(ChatContent.Text("キャンセルしました。"))
     }
@@ -266,7 +326,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             scheduleType = d.scheduleType,
             isIndefinite = d.isIndefinite,
             notifyEnabled = true,
-            notifyMinutesBefore = 1440, // 1日前
+            notifyMinutesBefore = calculateNotifyMinutes(d.startDate, d.startTime) ?: 0,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
@@ -322,7 +382,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun isRegistrationIntent(text: String): Boolean {
-        return text.contains("登録") || text.contains("予定") || text.contains("タスク")
+        return text.contains("予定を登録")
     }
 
     private fun isCancelIntent(text: String): Boolean {
