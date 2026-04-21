@@ -2,29 +2,25 @@ package com.example.taskschedulerv3.ui.aichat
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,13 +32,15 @@ import androidx.navigation.NavController
 import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.data.model.Task
-import kotlinx.coroutines.launch
+import com.example.taskschedulerv3.util.PhotoFileManager
+import java.io.File
 import java.util.Calendar
+import java.util.Locale
 
 // =============================================
 // メイン画面
 // =============================================
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AiChatScreen(
     navController: NavController,
@@ -54,10 +52,8 @@ fun AiChatScreen(
     val allTags by viewModel.allTags.collectAsState()
     val allTasks by viewModel.allTasks.collectAsState()
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
 
-    // 新しいメッセージが来たらスクロール
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
@@ -81,7 +77,6 @@ fun AiChatScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // メッセージ一覧
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -91,32 +86,16 @@ fun AiChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(messages) { msg ->
+                items(messages, key = { it.id }) { msg ->
                     ChatMessageItem(
                         message = msg,
                         wizardStep = wizardStep,
                         allTags = allTags,
                         allTasks = allTasks,
-                        onChoiceSelected = { value ->
-                            viewModel.onChoiceSelected(wizardStep, value)
-                        },
-                        onDateSelected = { viewModel.onDateSelected(it) },
-                        onTimeSelected = { s, e -> viewModel.onTimeSelected(s, e) },
-                        onTagsSelected = { viewModel.onTagsSelected(it) },
-                        onRelationsSelected = { viewModel.onRelationsSelected(it) },
-                        onPhotoSelected = { viewModel.onPhotoSelected(it) },
-                        onNotifyTimingSelected = { viewModel.onNotifyTimingSelected(it) },
-                        onRecurrenceSelected = { p, d, e ->
-                            viewModel.onRecurrenceSelected(p, d, e)
-                        },
-                        onRoadmapStepsSet = { viewModel.onRoadmapStepsSet(it) },
-                        onConfirm = { viewModel.confirmRegistration() },
-                        onModify = { viewModel.goBackToModify() },
-                        onCancel = { viewModel.cancelRegistration() },
+                        viewModel = viewModel,
                         isLatestAiMessage = msg == messages.lastOrNull { !it.isUser }
                     )
                 }
-
                 if (isTyping) {
                     item { ChatTypingIndicator() }
                 }
@@ -135,8 +114,15 @@ fun AiChatScreen(
                     modifier = Modifier.weight(1f),
                     placeholder = {
                         Text(
-                            if (wizardStep == WizardStep.IDLE) "なんでも聞いてください…"
-                            else "テキストを入力…"
+                            when (wizardStep) {
+                                WizardStep.IDLE -> "なんでも聞いてください…"
+                                WizardStep.INPUT_TITLE -> "タスク名を入力…"
+                                WizardStep.INPUT_MEMO -> "メモを入力…"
+                                WizardStep.SELECT_DATE, WizardStep.SELECT_END_DATE ->
+                                    "4月25日、明日 など…"
+                                WizardStep.SELECT_TIME -> "7時半、14:00〜15:30 など…"
+                                else -> "テキストを入力…"
+                            }
                         )
                     },
                     maxLines = 3,
@@ -163,7 +149,7 @@ fun AiChatScreen(
 }
 
 // =============================================
-// メッセージアイテムの振り分け
+// メッセージ振り分け
 // =============================================
 @Composable
 fun ChatMessageItem(
@@ -171,25 +157,13 @@ fun ChatMessageItem(
     wizardStep: WizardStep,
     allTags: List<Tag>,
     allTasks: List<Task>,
-    onChoiceSelected: (String) -> Unit,
-    onDateSelected: (String) -> Unit,
-    onTimeSelected: (String, String) -> Unit,
-    onTagsSelected: (List<Int>) -> Unit,
-    onRelationsSelected: (List<Int>) -> Unit,
-    onPhotoSelected: (String?) -> Unit,
-    onNotifyTimingSelected: (Int) -> Unit,
-    onRecurrenceSelected: (String, String, String) -> Unit,
-    onRoadmapStepsSet: (List<DraftRoadmapStep>) -> Unit,
-    onConfirm: () -> Unit,
-    onModify: () -> Unit,
-    onCancel: () -> Unit,
+    viewModel: AiChatViewModel,
     isLatestAiMessage: Boolean
 ) {
     when (val content = message.content) {
         is ChatContent.Text -> {
             ChatBubble(text = content.body, isUser = message.isUser)
         }
-
         is ChatContent.ChoiceButtons -> {
             AiCardWrapper {
                 Text(content.prompt, fontWeight = FontWeight.Medium)
@@ -200,124 +174,118 @@ fun ChatMessageItem(
                 ) {
                     content.choices.forEach { choice ->
                         FilledTonalButton(
-                            onClick = { onChoiceSelected(choice.value) },
+                            onClick = { viewModel.onChoiceSelected(wizardStep, choice.value) },
                             enabled = isLatestAiMessage
-                        ) {
-                            Text(choice.label)
-                        }
+                        ) { Text(choice.label) }
                     }
                     if (content.allowSkip) {
                         OutlinedButton(
-                            onClick = { onChoiceSelected("スキップ") },
+                            onClick = { viewModel.onChoiceSelected(wizardStep, "スキップ") },
                             enabled = isLatestAiMessage
-                        ) {
-                            Text("スキップ")
-                        }
+                        ) { Text("スキップ") }
                     }
                 }
             }
         }
-
         is ChatContent.TextInput -> {
             AiCardWrapper {
                 Text(content.prompt, fontWeight = FontWeight.Medium)
                 if (content.hint.isNotEmpty()) {
                     Text(content.hint, color = Color.Gray, fontSize = 12.sp)
                 }
+            }
+        }
+        is ChatContent.TextInputWithAi -> {
+            AiCardWrapper {
+                Text(content.prompt, fontWeight = FontWeight.Medium)
+                if (content.hint.isNotEmpty()) {
+                    Text(content.hint, color = Color.Gray, fontSize = 12.sp)
+                }
+                if (content.aiDescription.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            content.aiDescription,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(8.dp),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
                 if (content.allowSkip && isLatestAiMessage) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(onClick = { onChoiceSelected("スキップ") }) {
-                        Text("スキップ")
-                    }
+                    OutlinedButton(
+                        onClick = { viewModel.onChoiceSelected(wizardStep, "スキップ") }
+                    ) { Text("スキップ") }
                 }
             }
         }
-
         is ChatContent.DatePickerRequest -> {
             DatePickerCard(
                 prompt = content.prompt,
                 allowSkip = content.allowSkip,
                 enabled = isLatestAiMessage,
-                onDateSelected = onDateSelected,
-                onSkip = { onChoiceSelected("スキップ") }
+                onDateSelected = { viewModel.onDateSelected(it) },
+                onSkip = { viewModel.onChoiceSelected(wizardStep, "スキップ") }
             )
         }
-
         is ChatContent.TimePickerRequest -> {
             TimePickerCard(
                 prompt = content.prompt,
                 allowSkip = content.allowSkip,
                 enabled = isLatestAiMessage,
-                onTimeSelected = onTimeSelected,
-                onSkip = { onChoiceSelected("スキップ") }
+                onTimeSelected = { s, e -> viewModel.onTimeSelected(s, e) },
+                onSkip = { viewModel.onChoiceSelected(wizardStep, "スキップ") }
             )
         }
-
         is ChatContent.TagPickerRequest -> {
             TagPickerCard(
                 prompt = content.prompt,
                 tags = allTags,
                 enabled = isLatestAiMessage,
-                onTagsSelected = onTagsSelected,
-                onSkip = { onTagsSelected(emptyList()) }
+                onTagsSelected = { viewModel.onTagsSelected(it) },
+                onSkip = { viewModel.onTagsSelected(emptyList()) }
             )
         }
-
         is ChatContent.RelationPickerRequest -> {
             RelationPickerCard(
                 prompt = content.prompt,
                 tasks = allTasks,
+                suggestedIds = content.suggestedTaskIds,
                 enabled = isLatestAiMessage,
-                onRelationsSelected = onRelationsSelected,
-                onSkip = { onRelationsSelected(emptyList()) }
+                onRelationsSelected = { viewModel.onRelationsSelected(it) },
+                onSkip = { viewModel.onRelationsSelected(emptyList()) }
             )
         }
-
         is ChatContent.PhotoPickerRequest -> {
             PhotoPickerCard(
                 prompt = content.prompt,
                 enabled = isLatestAiMessage,
-                onPhotoSelected = onPhotoSelected,
-                onSkip = { onPhotoSelected(null) }
+                onPhotoSelected = { viewModel.onPhotoSelected(it) },
+                onSkip = { viewModel.onPhotoSelected(null) }
             )
         }
-
-        is ChatContent.NotifyTimingRequest -> {
-            NotifyTimingCard(
-                prompt = content.prompt,
-                enabled = isLatestAiMessage,
-                onSelected = onNotifyTimingSelected
-            )
-        }
-
         is ChatContent.RecurrencePickerRequest -> {
             RecurrencePickerCard(
                 prompt = content.prompt,
                 enabled = isLatestAiMessage,
-                onSelected = onRecurrenceSelected
+                onSelected = { p, d, e -> viewModel.onRecurrenceSelected(p, d, e) }
             )
         }
-
-        is ChatContent.RoadmapStepInput -> {
-            RoadmapStepCard(
-                prompt = content.prompt,
-                currentSteps = content.currentSteps,
-                enabled = isLatestAiMessage,
-                onStepsSet = onRoadmapStepsSet
-            )
-        }
-
         is ChatContent.TaskConfirmation -> {
             TaskConfirmationCard(
                 draft = content.draft,
                 allTags = allTags,
                 isActive = content.isActive && isLatestAiMessage,
-                onConfirm = onConfirm,
-                onModify = onModify,
-                onCancel = onCancel
+                onConfirm = { viewModel.confirmRegistration() },
+                onModify = { viewModel.goBackToModify() },
+                onCancel = { viewModel.cancelRegistration() }
             )
         }
-
         is ChatContent.TaskRegistered -> {
             TaskRegisteredCard(title = content.taskTitle)
         }
@@ -335,8 +303,7 @@ fun ChatBubble(text: String, isUser: Boolean) {
     ) {
         Surface(
             shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
+                topStart = 16.dp, topEnd = 16.dp,
                 bottomStart = if (isUser) 16.dp else 4.dp,
                 bottomEnd = if (isUser) 4.dp else 16.dp
             ),
@@ -346,11 +313,7 @@ fun ChatBubble(text: String, isUser: Boolean) {
                 MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Text(
-                text = text,
-                modifier = Modifier.padding(12.dp),
-                fontSize = 14.sp
-            )
+            Text(text, modifier = Modifier.padding(12.dp), fontSize = 14.sp)
         }
     }
 }
@@ -374,10 +337,7 @@ fun AiCardWrapper(content: @Composable ColumnScope.() -> Unit) {
                 bottomStart = 4.dp, bottomEnd = 16.dp
             )
         ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                content = content
-            )
+            Column(modifier = Modifier.padding(12.dp), content = content)
         }
     }
 }
@@ -394,35 +354,30 @@ fun DatePickerCard(
     onSkip: () -> Unit
 ) {
     val context = LocalContext.current
-    var selectedDate by remember { mutableStateOf("") }
 
     AiCardWrapper {
-        Text(prompt, fontWeight = FontWeight.Medium)
+        Text(prompt, fontWeight = FontWeight.Medium, fontSize = 13.sp)
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(
                 onClick = {
                     val cal = Calendar.getInstance()
                     DatePickerDialog(context, { _, y, m, d ->
-                        val date = String.format("%04d-%02d-%02d", y, m + 1, d)
-                        selectedDate = date
-                        onDateSelected(date)
-                    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
-                        .show()
+                        onDateSelected(String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d))
+                    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH)).show()
                 },
                 enabled = enabled
-            ) {
-                Text("日付を選択")
-            }
+            ) { Text("カレンダー") }
             if (allowSkip) {
-                OutlinedButton(onClick = onSkip, enabled = enabled) {
-                    Text("スキップ")
-                }
+                OutlinedButton(onClick = onSkip, enabled = enabled) { Text("スキップ") }
             }
         }
-        if (selectedDate.isNotEmpty()) {
-            Text("選択: $selectedDate", fontSize = 12.sp, color = Color.Gray)
-        }
+        Text(
+            "またはテキスト入力欄に日付を入力してください",
+            fontSize = 11.sp, color = Color.Gray,
+            modifier = Modifier.padding(top = 4.dp)
+        )
     }
 }
 
@@ -442,44 +397,41 @@ fun TimePickerCard(
     var endTime by remember { mutableStateOf("") }
 
     AiCardWrapper {
-        Text(prompt, fontWeight = FontWeight.Medium)
+        Text(prompt, fontWeight = FontWeight.Medium, fontSize = 13.sp)
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(
                 onClick = {
                     TimePickerDialog(context, { _, h, m ->
-                        startTime = String.format("%02d:%02d", h, m)
+                        startTime = String.format(Locale.getDefault(), "%02d:%02d", h, m)
                     }, 9, 0, true).show()
                 },
                 enabled = enabled
-            ) {
-                Text(if (startTime.isEmpty()) "開始時刻" else startTime)
-            }
+            ) { Text(if (startTime.isEmpty()) "開始" else startTime) }
             FilledTonalButton(
                 onClick = {
                     TimePickerDialog(context, { _, h, m ->
-                        endTime = String.format("%02d:%02d", h, m)
+                        endTime = String.format(Locale.getDefault(), "%02d:%02d", h, m)
                     }, 10, 0, true).show()
                 },
                 enabled = enabled
-            ) {
-                Text(if (endTime.isEmpty()) "終了時刻" else endTime)
-            }
+            ) { Text(if (endTime.isEmpty()) "終了" else endTime) }
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(
                 onClick = { onTimeSelected(startTime, endTime) },
                 enabled = enabled && startTime.isNotEmpty()
-            ) {
-                Text("決定")
-            }
+            ) { Text("決定") }
             if (allowSkip) {
-                OutlinedButton(onClick = onSkip, enabled = enabled) {
-                    Text("スキップ")
-                }
+                OutlinedButton(onClick = onSkip, enabled = enabled) { Text("スキップ") }
             }
         }
+        Text(
+            "またはテキスト入力欄に「7時半」等と入力できます",
+            fontSize = 11.sp, color = Color.Gray,
+            modifier = Modifier.padding(top = 4.dp)
+        )
     }
 }
 
@@ -500,7 +452,6 @@ fun TagPickerCard(
     AiCardWrapper {
         Text(prompt, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(8.dp))
-
         if (tags.isEmpty()) {
             Text("タグがありません", fontSize = 12.sp, color = Color.Gray)
         } else {
@@ -513,9 +464,7 @@ fun TagPickerCard(
                         selected = tag.id in selectedIds,
                         onClick = {
                             selectedIds = if (tag.id in selectedIds)
-                                selectedIds - tag.id
-                            else
-                                selectedIds + tag.id
+                                selectedIds - tag.id else selectedIds + tag.id
                         },
                         label = { Text(tag.name, fontSize = 12.sp) },
                         enabled = enabled
@@ -528,100 +477,98 @@ fun TagPickerCard(
             FilledTonalButton(
                 onClick = { onTagsSelected(selectedIds.toList()) },
                 enabled = enabled
-            ) {
-                Text("決定")
-            }
-            OutlinedButton(onClick = onSkip, enabled = enabled) {
-                Text("スキップ")
-            }
+            ) { Text("決定") }
+            OutlinedButton(onClick = onSkip, enabled = enabled) { Text("スキップ") }
         }
     }
 }
 
 // =============================================
-// 関連予定選択カード
+// 関連予定選択カード（AI候補付き）
 // =============================================
 @Composable
 fun RelationPickerCard(
     prompt: String,
     tasks: List<Task>,
+    suggestedIds: List<Int>,
     enabled: Boolean,
     onRelationsSelected: (List<Int>) -> Unit,
     onSkip: () -> Unit
 ) {
-    var selectedIds by remember { mutableStateOf(setOf<Int>()) }
-    var expanded by remember { mutableStateOf(false) }
+    // AI候補を初期選択状態にする
+    var selectedIds by remember { mutableStateOf(suggestedIds.toSet()) }
+    var showAll by remember { mutableStateOf(false) }
 
     AiCardWrapper {
         Text(prompt, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (tasks.isEmpty()) {
-            Text("関連付けできる予定がありません", fontSize = 12.sp, color = Color.Gray)
-        } else {
-            // 選択済み表示
-            if (selectedIds.isNotEmpty()) {
-                selectedIds.forEach { id ->
-                    val t = tasks.find { it.id == id }
-                    if (t != null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Default.Check, contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(t.title, fontSize = 12.sp, maxLines = 1,
+        // AI候補表示
+        if (suggestedIds.isNotEmpty()) {
+            Text("AI おすすめ:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary)
+            suggestedIds.forEach { id ->
+                val t = tasks.find { it.id == id }
+                if (t != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = enabled) {
+                                selectedIds = if (id in selectedIds)
+                                    selectedIds - id else selectedIds + id
+                            }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = id in selectedIds,
+                            onCheckedChange = null, enabled = enabled
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
+                            Text(t.title, fontSize = 13.sp, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis)
+                            Text(t.startDate, fontSize = 11.sp, color = Color.Gray)
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
             }
+            Spacer(modifier = Modifier.height(4.dp))
+        }
 
-            // タスクリスト（折りたたみ）
+        // 全タスク一覧（展開式）
+        if (tasks.isNotEmpty()) {
             OutlinedButton(
-                onClick = { expanded = !expanded },
+                onClick = { showAll = !showAll },
                 enabled = enabled
-            ) {
-                Text(if (expanded) "一覧を閉じる" else "一覧から選択")
-            }
+            ) { Text(if (showAll) "一覧を閉じる" else "すべてから選択") }
 
-            if (expanded) {
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 200.dp)
-                ) {
-                    tasks.take(30).forEach { task ->
+            if (showAll) {
+                Column(modifier = Modifier.heightIn(max = 200.dp)) {
+                    tasks.filter { it.id !in suggestedIds }.take(30).forEach { task ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable(enabled = enabled) {
                                     selectedIds = if (task.id in selectedIds)
-                                        selectedIds - task.id
-                                    else
-                                        selectedIds + task.id
+                                        selectedIds - task.id else selectedIds + task.id
                                 }
-                                .padding(vertical = 4.dp, horizontal = 4.dp),
+                                .padding(vertical = 2.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
                                 checked = task.id in selectedIds,
-                                onCheckedChange = null,
-                                enabled = enabled
+                                onCheckedChange = null, enabled = enabled
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                task.title,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Text(task.title, fontSize = 12.sp, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
             }
+        } else {
+            Text("関連付けできる予定がありません", fontSize = 12.sp, color = Color.Gray)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -629,18 +576,14 @@ fun RelationPickerCard(
             FilledTonalButton(
                 onClick = { onRelationsSelected(selectedIds.toList()) },
                 enabled = enabled
-            ) {
-                Text("決定")
-            }
-            OutlinedButton(onClick = onSkip, enabled = enabled) {
-                Text("スキップ")
-            }
+            ) { Text("決定") }
+            OutlinedButton(onClick = onSkip, enabled = enabled) { Text("スキップ") }
         }
     }
 }
 
 // =============================================
-// 写真追加カード
+// 写真追加カード（カメラ＋ギャラリー対応）
 // =============================================
 @Composable
 fun PhotoPickerCard(
@@ -649,60 +592,86 @@ fun PhotoPickerCard(
     onPhotoSelected: (String?) -> Unit,
     onSkip: () -> Unit
 ) {
-    // 簡易版: カメラ／ギャラリー起動は親Activityに委譲する想定
-    // ここではスキップのみ対応。写真機能は既存のCaptureSheetを流用
-    AiCardWrapper {
-        Text(prompt, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            "※ 写真はタスク登録後に編集画面から追加できます",
-            fontSize = 11.sp,
-            color = Color.Gray
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onSkip, enabled = enabled) {
-                Text("スキップ")
+    val context = LocalContext.current
+    var photoPath by remember { mutableStateOf<String?>(null) }
+    var tempPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var tempPhotoFile by remember { mutableStateOf<File?>(null) }
+
+    // カメラ起動結果
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempPhotoFile != null) {
+            val saved = PhotoFileManager.saveResizedPhotoFromFile(context, tempPhotoFile!!)
+            if (saved != null) {
+                photoPath = saved
             }
         }
     }
-}
 
-// =============================================
-// 通知タイミング選択カード
-// =============================================
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun NotifyTimingCard(
-    prompt: String,
-    enabled: Boolean,
-    onSelected: (Int) -> Unit
-) {
-    val options = listOf(
-        "予定時刻" to 0,
-        "5分前" to 5,
-        "10分前" to 10,
-        "15分前" to 15,
-        "30分前" to 30,
-        "1時間前" to 60,
-        "1日前" to 1440
-    )
+    // ギャラリー選択結果
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            val saved = PhotoFileManager.saveResizedPhoto(context, uri)
+            if (saved != null) {
+                photoPath = saved
+            }
+        }
+    }
 
     AiCardWrapper {
         Text(prompt, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(8.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            options.forEach { (label, minutes) ->
-                FilledTonalButton(
-                    onClick = { onSelected(minutes) },
-                    enabled = enabled
-                ) {
-                    Text(label, fontSize = 12.sp)
-                }
+
+        if (photoPath != null) {
+            Text("写真を選択済み", fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(
+                onClick = {
+                    val result = PhotoFileManager.createTempPhotoUri(context)
+                    tempPhotoUri = result.first
+                    tempPhotoFile = result.second
+                    cameraLauncher.launch(result.first)
+                },
+                enabled = enabled
+            ) {
+                Icon(Icons.Default.CameraAlt, contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("カメラ")
             }
+            FilledTonalButton(
+                onClick = {
+                    galleryLauncher.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
+                    )
+                },
+                enabled = enabled
+            ) {
+                Icon(Icons.Default.Photo, contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("ギャラリー")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (photoPath != null) {
+                FilledTonalButton(
+                    onClick = { onPhotoSelected(photoPath) },
+                    enabled = enabled
+                ) { Text("この写真で決定") }
+            }
+            OutlinedButton(onClick = onSkip, enabled = enabled) { Text("スキップ") }
         }
     }
 }
@@ -718,11 +687,8 @@ fun RecurrencePickerCard(
     onSelected: (String, String, String) -> Unit
 ) {
     val patterns = listOf(
-        "毎日" to "DAILY",
-        "毎週" to "WEEKLY",
-        "隔週" to "BIWEEKLY",
-        "毎月（日付）" to "MONTHLY_DATE",
-        "毎月（曜日）" to "MONTHLY_WEEK",
+        "毎日" to "DAILY", "毎週" to "WEEKLY", "隔週" to "BIWEEKLY",
+        "毎月（日付）" to "MONTHLY_DATE", "毎月（曜日）" to "MONTHLY_WEEK",
         "毎年" to "YEARLY"
     )
 
@@ -737,95 +703,8 @@ fun RecurrencePickerCard(
                 FilledTonalButton(
                     onClick = { onSelected(value, "", "") },
                     enabled = enabled
-                ) {
-                    Text(label, fontSize = 12.sp)
-                }
+                ) { Text(label, fontSize = 12.sp) }
             }
-        }
-    }
-}
-
-// =============================================
-// ロードマップステップ入力カード
-// =============================================
-@Composable
-fun RoadmapStepCard(
-    prompt: String,
-    currentSteps: List<DraftRoadmapStep>,
-    enabled: Boolean,
-    onStepsSet: (List<DraftRoadmapStep>) -> Unit
-) {
-    var steps by remember { mutableStateOf(currentSteps.toMutableList()) }
-    var newStepText by remember { mutableStateOf("") }
-
-    AiCardWrapper {
-        Text(prompt, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 既存ステップ表示
-        steps.forEachIndexed { index, step ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "${index + 1}. ${step.title}",
-                    fontSize = 13.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = {
-                        steps = steps.toMutableList().apply { removeAt(index) }
-                    },
-                    modifier = Modifier.size(24.dp),
-                    enabled = enabled
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "削除",
-                        modifier = Modifier.size(16.dp))
-                }
-            }
-        }
-
-        // 新規追加
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 4.dp)
-        ) {
-            OutlinedTextField(
-                value = newStepText,
-                onValueChange = { newStepText = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("ステップ名", fontSize = 12.sp) },
-                singleLine = true,
-                enabled = enabled,
-                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
-            )
-            IconButton(
-                onClick = {
-                    if (newStepText.isNotBlank()) {
-                        steps = steps.toMutableList().apply {
-                            add(DraftRoadmapStep(
-                                title = newStepText.trim(),
-                                sortOrder = size
-                            ))
-                        }
-                        newStepText = ""
-                    }
-                },
-                enabled = enabled && newStepText.isNotBlank()
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "追加")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        FilledTonalButton(
-            onClick = { onStepsSet(steps) },
-            enabled = enabled && steps.isNotEmpty()
-        ) {
-            Text("ステップ確定")
         }
     }
 }
@@ -843,10 +722,11 @@ fun TaskConfirmationCard(
     onCancel: () -> Unit
 ) {
     AiCardWrapper {
-        Text("登録内容の確認", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text("この内容で登録してよろしいですか？",
+            fontWeight = FontWeight.Bold, fontSize = 15.sp)
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-        ConfirmRow("予定の種類", when {
+        ConfirmRow("種類", when {
             draft.isIndefinite -> "無期限"
             draft.scheduleType == ScheduleType.NORMAL -> "通常"
             draft.scheduleType == ScheduleType.PERIOD -> "期間"
@@ -854,10 +734,7 @@ fun TaskConfirmationCard(
             else -> draft.scheduleType.name
         })
         ConfirmRow("タスク名", draft.title)
-
-        if (draft.memo.isNotEmpty()) {
-            ConfirmRow("メモ", draft.memo)
-        }
+        if (draft.memo.isNotEmpty()) ConfirmRow("メモ", draft.memo)
         if (draft.startDate.isNotEmpty()) {
             ConfirmRow("日付", draft.startDate +
                 if (draft.endDate.isNotEmpty()) " 〜 ${draft.endDate}" else "")
@@ -869,25 +746,16 @@ fun TaskConfirmationCard(
         if (draft.scheduleType == ScheduleType.RECURRING) {
             ConfirmRow("繰り返し", recurrenceDisplayLabel(draft.recurrencePattern))
         }
-
-        ConfirmRow("通知", if (draft.notifyEnabled) {
-            when (draft.notifyMinutesBefore) {
-                0 -> "予定時刻"
-                60 -> "1時間前"
-                1440 -> "1日前"
-                else -> "${draft.notifyMinutesBefore}分前"
-            }
-        } else "なし")
-
-        ConfirmRow("ロードマップ", if (draft.roadmapEnabled)
-            "${draft.roadmapSteps.size}ステップ" else "なし")
-
+        ConfirmRow("通知", "1日前")
         if (draft.tagIds.isNotEmpty()) {
-            val tagNames = allTags.filter { it.id in draft.tagIds }.joinToString(", ") { it.name }
-            ConfirmRow("タグ", tagNames)
+            val names = allTags.filter { it.id in draft.tagIds }.joinToString(", ") { it.name }
+            ConfirmRow("タグ", names)
         }
         if (draft.relatedTaskIds.isNotEmpty()) {
             ConfirmRow("関連予定", "${draft.relatedTaskIds.size}件")
+        }
+        if (draft.photoPath != null) {
+            ConfirmRow("写真", "あり")
         }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -897,16 +765,10 @@ fun TaskConfirmationCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilledTonalButton(
-                    onClick = onConfirm,
-                    modifier = Modifier.weight(1f)
-                ) {
+                FilledTonalButton(onClick = onConfirm, modifier = Modifier.weight(1f)) {
                     Text("登録する")
                 }
-                OutlinedButton(
-                    onClick = onModify,
-                    modifier = Modifier.weight(1f)
-                ) {
+                OutlinedButton(onClick = onModify, modifier = Modifier.weight(1f)) {
                     Text("修正する")
                 }
             }
@@ -914,11 +776,9 @@ fun TaskConfirmationCard(
             TextButton(
                 onClick = onCancel,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) {
-                Text("キャンセル", color = MaterialTheme.colorScheme.error)
-            }
+            ) { Text("キャンセル", color = MaterialTheme.colorScheme.error) }
         } else {
-            Text("（登録済み）", color = Color.Gray, fontSize = 12.sp)
+            Text("（処理済み）", color = Color.Gray, fontSize = 12.sp)
         }
     }
 }
@@ -926,78 +786,43 @@ fun TaskConfirmationCard(
 @Composable
 fun ConfirmRow(label: String, value: String) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
     ) {
-        Text(
-            label,
-            fontWeight = FontWeight.Medium,
-            fontSize = 13.sp,
-            modifier = Modifier.width(90.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text(label, fontWeight = FontWeight.Medium, fontSize = 13.sp,
+            modifier = Modifier.width(80.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, fontSize = 13.sp)
     }
 }
 
-// =============================================
-// 登録完了カード
-// =============================================
 @Composable
 fun TaskRegisteredCard(title: String) {
     AiCardWrapper {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Default.Check,
-                contentDescription = null,
-                tint = Color(0xFF4CAF50),
-                modifier = Modifier.size(20.dp)
-            )
+            Icon(Icons.Default.Check, contentDescription = null,
+                tint = Color(0xFF4CAF50), modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                "「${title}」を登録しました",
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF4CAF50)
-            )
+            Text("「${title}」を登録しました",
+                fontWeight = FontWeight.Medium, color = Color(0xFF4CAF50))
         }
     }
 }
 
-// =============================================
-// タイピングインジケーター
-// =============================================
 @Composable
 fun ChatTypingIndicator() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start
-    ) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
-            Text(
-                "考え中…",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                fontSize = 13.sp,
-                color = Color.Gray
-            )
+            Text("考え中…", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                fontSize = 13.sp, color = Color.Gray)
         }
     }
 }
 
-// =============================================
-// ヘルパー
-// =============================================
-private fun recurrenceDisplayLabel(pattern: String): String {
-    return when (pattern) {
-        "DAILY" -> "毎日"
-        "WEEKLY" -> "毎週"
-        "BIWEEKLY" -> "隔週"
-        "MONTHLY_DATE" -> "毎月（日付）"
-        "MONTHLY_WEEK" -> "毎月（曜日）"
-        "YEARLY" -> "毎年"
-        else -> pattern
-    }
+private fun recurrenceDisplayLabel(pattern: String): String = when (pattern) {
+    "DAILY" -> "毎日"; "WEEKLY" -> "毎週"; "BIWEEKLY" -> "隔週"
+    "MONTHLY_DATE" -> "毎月（日付）"; "MONTHLY_WEEK" -> "毎月（曜日）"
+    "YEARLY" -> "毎年"; else -> pattern
 }

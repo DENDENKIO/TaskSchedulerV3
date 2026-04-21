@@ -3,30 +3,26 @@ package com.example.taskschedulerv3.ui.aichat
 import com.example.taskschedulerv3.data.model.ScheduleType
 
 // =============================================
-// ウィザードの現在ステップ
+// ウィザードステップ（簡略化版）
 // =============================================
 enum class WizardStep {
-    IDLE,               // ウィザード未起動
-    SELECT_TYPE,        // 予定の種類選択
-    SELECT_NOTIFY,      // 通知の有無
-    SELECT_ROADMAP,     // ロードマップの有無
-    INPUT_TITLE,        // タスク名入力
-    INPUT_MEMO,         // メモ入力
-    SELECT_DATE,        // 日付選択
-    SELECT_END_DATE,    // 終了日選択（期間タスクのみ）
-    SELECT_TIME,        // 時刻選択
-    SELECT_RECURRENCE,  // 繰り返しパターン（繰り返しタスクのみ）
-    SELECT_TAGS,        // タグ選択
-    SELECT_RELATIONS,   // 関連予定選択
-    SELECT_PHOTOS,      // 写真追加
-    SET_NOTIFY_TIMING,  // 通知タイミング設定
-    INPUT_ROADMAP_STEPS,// ロードマップステップ入力
-    CONFIRM,            // 確認画面
-    COMPLETED           // 登録完了
+    IDLE,
+    SELECT_TYPE,        // Step 1: 予定の種類
+    INPUT_TITLE,        // Step 2: タスク名
+    INPUT_MEMO,         // Step 3: メモ（AI整形）
+    SELECT_DATE,        // Step 4: 日付
+    SELECT_END_DATE,    // Step 4b: 終了日（期間のみ）
+    SELECT_TIME,        // Step 5: 時刻
+    SELECT_RECURRENCE,  // 繰り返しパターン
+    SELECT_TAGS,        // Step 6: タグ
+    SELECT_RELATIONS,   // Step 7: 関連予定（AI候補）
+    SELECT_PHOTOS,      // Step 8: 写真追加
+    CONFIRM,            // Step 9: 確認
+    COMPLETED
 }
 
 // =============================================
-// ウィザードで構築中のタスクデータ
+// 構築中のタスクデータ
 // =============================================
 data class DraftTaskData(
     val scheduleType: ScheduleType = ScheduleType.NORMAL,
@@ -36,15 +32,10 @@ data class DraftTaskData(
     val endDate: String = "",        // yyyy-MM-dd（期間タスク用）
     val startTime: String = "",      // HH:mm
     val endTime: String = "",        // HH:mm
-    val notifyEnabled: Boolean = false,
-    val notifyMinutesBefore: Int = 60,
-    val roadmapEnabled: Boolean = false,
-    val roadmapSteps: List<DraftRoadmapStep> = emptyList(),
+    val isIndefinite: Boolean = false,
     val tagIds: List<Int> = emptyList(),
     val relatedTaskIds: List<Int> = emptyList(),
     val photoPath: String? = null,
-    val priority: Int = 1,  // 0=高, 1=中, 2=低
-    val isIndefinite: Boolean = false,
     val recurrencePattern: String = "NONE",
     val recurrenceDays: String = "",
     val recurrenceEndDate: String = ""
@@ -52,56 +43,66 @@ data class DraftTaskData(
 
 data class DraftRoadmapStep(
     val title: String,
-    val date: String = "",  // yyyy-MM-dd（任意）
+    val date: String = "",
     val sortOrder: Int = 0
 )
 
 // =============================================
-// チャットメッセージの内容種別
+// チャット内容の種別
 // =============================================
 sealed class ChatContent {
-    /** 通常テキスト */
     data class Text(val body: String) : ChatContent()
 
-    /** 選択肢ボタン群 */
     data class ChoiceButtons(
         val prompt: String,
         val choices: List<Choice>,
         val allowSkip: Boolean = false
     ) : ChatContent()
 
-    /** テキスト入力要求 */
+    /** テキスト入力（AI整形なし） */
     data class TextInput(
         val prompt: String,
         val hint: String = "",
         val allowSkip: Boolean = false
     ) : ChatContent()
 
-    /** 日付選択要求 */
+    /** テキスト入力（AI整形あり） */
+    data class TextInputWithAi(
+        val prompt: String,
+        val hint: String = "",
+        val allowSkip: Boolean = true,
+        val aiDescription: String = ""
+    ) : ChatContent()
+
+    /** 日付選択（DatePicker ＋ テキスト入力対応） */
     data class DatePickerRequest(
         val prompt: String,
-        val allowSkip: Boolean = false
+        val allowSkip: Boolean = false,
+        val allowTextInput: Boolean = true
     ) : ChatContent()
 
-    /** 時刻選択要求 */
+    /** 時刻選択（TimePicker ＋ テキスト入力対応） */
     data class TimePickerRequest(
         val prompt: String,
-        val allowSkip: Boolean = false
+        val allowSkip: Boolean = true,
+        val allowTextInput: Boolean = true
     ) : ChatContent()
 
-    /** タグ選択要求 */
+    /** タグ選択 */
     data class TagPickerRequest(
         val prompt: String,
         val allowSkip: Boolean = true
     ) : ChatContent()
 
-    /** 関連予定選択要求 */
+    /** 関連予定選択（AI候補付き） */
     data class RelationPickerRequest(
         val prompt: String,
+        val suggestedTaskIds: List<Int> = emptyList(),
+        val aiReason: String = "",
         val allowSkip: Boolean = true
     ) : ChatContent()
 
-    /** 写真追加要求 */
+    /** 写真追加 */
     data class PhotoPickerRequest(
         val prompt: String,
         val allowSkip: Boolean = true
@@ -112,24 +113,13 @@ sealed class ChatContent {
         val prompt: String
     ) : ChatContent()
 
-    /** ロードマップステップ入力 */
-    data class RoadmapStepInput(
-        val prompt: String,
-        val currentSteps: List<DraftRoadmapStep> = emptyList()
-    ) : ChatContent()
-
-    /** 通知タイミング選択 */
-    data class NotifyTimingRequest(
-        val prompt: String
-    ) : ChatContent()
-
     /** 確認カード */
     data class TaskConfirmation(
         val draft: DraftTaskData,
         val isActive: Boolean = true
     ) : ChatContent()
 
-    /** 登録完了カード */
+    /** 登録完了 */
     data class TaskRegistered(
         val taskTitle: String,
         val taskId: Int
@@ -145,6 +135,7 @@ data class Choice(
 // チャットメッセージ
 // =============================================
 data class ChatMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
     val content: ChatContent,
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis()

@@ -6,7 +6,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.RecurrencePattern
-import com.example.taskschedulerv3.data.model.RoadmapStep
 import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.data.model.Task
@@ -25,6 +24,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class AiChatViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -32,7 +32,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         private const val TAG = "AiChatVM"
     }
 
-    // --- DB ---
     private val db = AppDatabase.getInstance(application)
     private val taskDao = db.taskDao()
     private val tagDao = db.tagDao()
@@ -41,50 +40,45 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     private val roadmapStepDao = db.roadmapStepDao()
     private val repository = TaskRepository(taskDao, roadmapStepDao)
 
-    // --- Chat State ---
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     private val _isTyping = MutableStateFlow(false)
     val isTyping: StateFlow<Boolean> = _isTyping.asStateFlow()
 
-    // --- Wizard State ---
     private val _wizardStep = MutableStateFlow(WizardStep.IDLE)
     val wizardStep: StateFlow<WizardStep> = _wizardStep.asStateFlow()
 
     private val _draft = MutableStateFlow(DraftTaskData())
     val draft: StateFlow<DraftTaskData> = _draft.asStateFlow()
 
-    // --- Tags cache ---
     private val _allTags = MutableStateFlow<List<Tag>>(emptyList())
     val allTags: StateFlow<List<Tag>> = _allTags.asStateFlow()
 
-    // --- Tasks cache (for relation picker) ---
     private val _allTasks = MutableStateFlow<List<Task>>(emptyList())
     val allTasks: StateFlow<List<Task>> = _allTasks.asStateFlow()
 
     init {
-        // 初回あいさつ
         addAiMessage(ChatContent.Text(
             "こんにちは！予定の検索や登録のお手伝いをします。\n" +
             "「予定を登録」と入力するか、質問を自由にどうぞ。"
         ))
-        // タグ・タスクを読み込み
         viewModelScope.launch {
             tagDao.getAll().collect { _allTags.value = it }
         }
         viewModelScope.launch {
-            taskDao.getAll().collect { _allTasks.value = it.filter { t -> !t.isDeleted && !t.isCompleted } }
+            taskDao.getAll().collect {
+                _allTasks.value = it.filter { t -> !t.isDeleted && !t.isCompleted }
+            }
         }
     }
 
     // =========================================================
-    // ユーザーのテキスト入力（チャット欄からの送信）
+    // テキスト送信
     // =========================================================
     fun sendMessage(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
-
         addUserMessage(trimmed)
 
         viewModelScope.launch {
@@ -101,7 +95,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // =========================================================
-    // ウィザードの選択肢がタップされた
+    // ボタン選択
     // =========================================================
     fun onChoiceSelected(stepAtSelection: WizardStep, value: String) {
         viewModelScope.launch {
@@ -118,7 +112,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // =========================================================
-    // 日付が選択された
+    // 日付選択（DatePickerから）
     // =========================================================
     fun onDateSelected(date: String) {
         val step = _wizardStep.value
@@ -143,31 +137,104 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // =========================================================
-    // 時刻が選択された
+    // 日付テキスト入力（AI解析）
+    // =========================================================
+    fun onDateTextInput(text: String) {
+        val step = _wizardStep.value
+        addUserMessage(text)
+        viewModelScope.launch {
+            _isTyping.value = true
+            try {
+                val parsed = parseDateWithAi(text)
+                if (parsed != null) {
+                    addAiMessage(ChatContent.Text("${parsed} に設定しました。"))
+                    when (step) {
+                        WizardStep.SELECT_DATE -> {
+                            _draft.value = _draft.value.copy(startDate = parsed)
+                            if (_draft.value.scheduleType == ScheduleType.PERIOD) {
+                                moveToStep(WizardStep.SELECT_END_DATE)
+                            } else {
+                                moveToStep(WizardStep.SELECT_TIME)
+                            }
+                        }
+                        WizardStep.SELECT_END_DATE -> {
+                            _draft.value = _draft.value.copy(endDate = parsed)
+                            moveToStep(WizardStep.SELECT_TIME)
+                        }
+                        else -> {}
+                    }
+                } else {
+                    addAiMessage(ChatContent.Text(
+                        "日付を認識できませんでした。カレンダーから選択してください。"
+                    ))
+                }
+            } finally {
+                _isTyping.value = false
+            }
+        }
+    }
+
+    // =========================================================
+    // 時刻選択（TimePickerから）
     // =========================================================
     fun onTimeSelected(startTime: String, endTime: String = "") {
         val display = if (endTime.isNotEmpty()) "$startTime 〜 $endTime" else startTime
         addUserMessage(display)
         viewModelScope.launch {
             _draft.value = _draft.value.copy(startTime = startTime, endTime = endTime)
-            moveAfterTime()
+            moveToStep(WizardStep.SELECT_TAGS)
         }
     }
 
     // =========================================================
-    // タグが選択された
+    // 時刻テキスト入力（AI解析）
+    // =========================================================
+    fun onTimeTextInput(text: String) {
+        addUserMessage(text)
+        viewModelScope.launch {
+            _isTyping.value = true
+            try {
+                val parsed = parseTimeWithAi(text)
+                if (parsed != null) {
+                    addAiMessage(ChatContent.Text("${parsed.first}" +
+                        (if (parsed.second.isNotEmpty()) " 〜 ${parsed.second}" else "") +
+                        " に設定しました。"))
+                    _draft.value = _draft.value.copy(
+                        startTime = parsed.first,
+                        endTime = parsed.second
+                    )
+                    moveToStep(WizardStep.SELECT_TAGS)
+                } else {
+                    addAiMessage(ChatContent.Text(
+                        "時刻を認識できませんでした。時計から選択してください。"
+                    ))
+                }
+            } finally {
+                _isTyping.value = false
+            }
+        }
+    }
+
+    // =========================================================
+    // タグ選択
     // =========================================================
     fun onTagsSelected(tagIds: List<Int>) {
         val names = _allTags.value.filter { it.id in tagIds }.joinToString(", ") { it.name }
         addUserMessage(if (tagIds.isEmpty()) "スキップ" else "タグ: $names")
         viewModelScope.launch {
             _draft.value = _draft.value.copy(tagIds = tagIds)
-            moveToStep(WizardStep.SELECT_RELATIONS)
+            // 関連予定ステップへ → AI候補をリストアップ
+            _isTyping.value = true
+            try {
+                suggestRelationsAndMove()
+            } finally {
+                _isTyping.value = false
+            }
         }
     }
 
     // =========================================================
-    // 関連予定が選択された
+    // 関連予定選択
     // =========================================================
     fun onRelationsSelected(taskIds: List<Int>) {
         addUserMessage(if (taskIds.isEmpty()) "スキップ" else "関連予定: ${taskIds.size}件")
@@ -178,39 +245,18 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // =========================================================
-    // 写真が選択された（パス）
+    // 写真選択
     // =========================================================
     fun onPhotoSelected(path: String?) {
         addUserMessage(if (path == null) "スキップ" else "写真を追加しました")
         viewModelScope.launch {
             _draft.value = _draft.value.copy(photoPath = path)
-            moveAfterPhotos()
+            moveToStep(WizardStep.CONFIRM)
         }
     }
 
     // =========================================================
-    // 通知タイミング選択
-    // =========================================================
-    fun onNotifyTimingSelected(minutes: Int) {
-        val label = when (minutes) {
-            0 -> "予定時刻"
-            5 -> "5分前"
-            10 -> "10分前"
-            15 -> "15分前"
-            30 -> "30分前"
-            60 -> "1時間前"
-            1440 -> "1日前"
-            else -> "${minutes}分前"
-        }
-        addUserMessage(label)
-        viewModelScope.launch {
-            _draft.value = _draft.value.copy(notifyMinutesBefore = minutes)
-            moveAfterNotify()
-        }
-    }
-
-    // =========================================================
-    // 繰り返しパターン選択
+    // 繰り返しパターン
     // =========================================================
     fun onRecurrenceSelected(pattern: String, days: String = "", endDate: String = "") {
         addUserMessage("繰り返し: ${recurrenceLabel(pattern)}")
@@ -220,23 +266,12 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 recurrenceDays = days,
                 recurrenceEndDate = endDate
             )
-            moveToStep(WizardStep.SELECT_TIME)
+            moveToStep(WizardStep.SELECT_DATE)
         }
     }
 
     // =========================================================
-    // ロードマップステップ追加
-    // =========================================================
-    fun onRoadmapStepsSet(steps: List<DraftRoadmapStep>) {
-        addUserMessage("ロードマップ: ${steps.size}ステップ")
-        viewModelScope.launch {
-            _draft.value = _draft.value.copy(roadmapSteps = steps)
-            moveToStep(WizardStep.CONFIRM)
-        }
-    }
-
-    // =========================================================
-    // 確認画面のアクション
+    // 確認アクション
     // =========================================================
     fun confirmRegistration() {
         viewModelScope.launch {
@@ -249,9 +284,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     taskId = taskId
                 ))
                 addAiMessage(ChatContent.Text(
-                    "「${_draft.value.title}」を登録しました！\n他にご用件はありますか？"
+                    "「${_draft.value.title}」を登録しました！\n" +
+                    "通知は1日前に設定されています。\n" +
+                    "ロードマップが必要な場合は編集画面から追加できます。\n\n" +
+                    "他にご用件はありますか？"
                 ))
-                // リセット
                 _draft.value = DraftTaskData()
                 _wizardStep.value = WizardStep.IDLE
             } catch (e: Exception) {
@@ -270,56 +307,50 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun goBackToModify() {
-        // 確認画面から修正へ戻る → Step 1 から再開
-        addAiMessage(ChatContent.Text("修正します。最初からやり直しましょう。"))
+        addAiMessage(ChatContent.Text("最初からやり直します。"))
         moveToStep(WizardStep.SELECT_TYPE)
     }
 
     // =========================================================
-    // 内部: テキスト入力の処理振り分け
+    // 内部: テキスト入力振り分け
     // =========================================================
     private suspend fun processInput(text: String) {
         val step = _wizardStep.value
 
         when (step) {
             WizardStep.IDLE -> {
-                // 登録キーワード検出
                 if (isRegistrationIntent(text)) {
                     startWizard()
                 } else {
-                    // 従来の検索 or 自由会話
                     handleNonWizardInput(text)
                 }
             }
             WizardStep.INPUT_TITLE -> {
                 _draft.value = _draft.value.copy(title = text)
-                addAiMessage(ChatContent.Text("タスク名を「${text}」に設定しました。"))
+                addAiMessage(ChatContent.Text("タスク名:「${text}」"))
                 moveToStep(WizardStep.INPUT_MEMO)
             }
             WizardStep.INPUT_MEMO -> {
-                _draft.value = _draft.value.copy(memo = text)
-                addAiMessage(ChatContent.Text("メモを設定しました。"))
+                // AI でメモを整形
+                val formatted = formatMemoWithAi(text)
+                _draft.value = _draft.value.copy(memo = formatted)
+                addAiMessage(ChatContent.Text("メモを整えました:\n$formatted"))
                 moveToDateStep()
             }
-            WizardStep.INPUT_ROADMAP_STEPS -> {
-                // テキスト入力でステップ追加（改行区切り）
-                val steps = text.split("\n").filter { it.isNotBlank() }.mapIndexed { i, line ->
-                    DraftRoadmapStep(title = line.trim(), sortOrder = i)
-                }
-                if (steps.isEmpty()) {
-                    addAiMessage(ChatContent.Text("ステップが空です。もう一度入力してください。"))
-                } else {
-                    onRoadmapStepsSet(steps)
-                }
+            WizardStep.SELECT_DATE, WizardStep.SELECT_END_DATE -> {
+                // テキストで日付入力された場合
+                onDateTextInput(text)
+            }
+            WizardStep.SELECT_TIME -> {
+                // テキストで時刻入力された場合
+                onTimeTextInput(text)
             }
             else -> {
-                // ウィザード中にテキストが来た場合、意図を判断
                 if (isRegistrationCancel(text)) {
                     cancelRegistration()
                 } else {
                     addAiMessage(ChatContent.Text(
-                        "現在、予定登録の途中です。上のボタンから選択してください。\n" +
-                        "キャンセルする場合は「キャンセル」と入力してください。"
+                        "登録の途中です。ボタンから選択するか、「キャンセル」で中断できます。"
                     ))
                 }
             }
@@ -331,58 +362,40 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     // =========================================================
     private fun startWizard() {
         _draft.value = DraftTaskData()
-        addAiMessage(ChatContent.Text("予定を登録しましょう！まず予定の種類を選んでください。"))
+        addAiMessage(ChatContent.Text("予定を登録しましょう！"))
         moveToStep(WizardStep.SELECT_TYPE)
     }
 
     // =========================================================
-    // ウィザード: ボタン選択の処理
+    // ボタン選択処理
     // =========================================================
     private suspend fun handleWizardChoice(step: WizardStep, value: String) {
+        addUserMessage(value)
+
         when (step) {
             WizardStep.SELECT_TYPE -> {
-                val type = when (value) {
-                    "通常" -> ScheduleType.NORMAL
-                    "期間" -> ScheduleType.PERIOD
+                when (value) {
+                    "通常" -> {
+                        _draft.value = _draft.value.copy(scheduleType = ScheduleType.NORMAL)
+                    }
+                    "期間" -> {
+                        _draft.value = _draft.value.copy(scheduleType = ScheduleType.PERIOD)
+                    }
                     "無期限" -> {
                         _draft.value = _draft.value.copy(
                             scheduleType = ScheduleType.NORMAL,
                             isIndefinite = true
                         )
-                        addAiMessage(ChatContent.Text("無期限タスクに設定しました。"))
-                        moveToStep(WizardStep.SELECT_NOTIFY)
-                        return
                     }
-                    "繰り返し" -> ScheduleType.RECURRING
-                    else -> ScheduleType.NORMAL
+                    "繰り返し" -> {
+                        _draft.value = _draft.value.copy(scheduleType = ScheduleType.RECURRING)
+                    }
                 }
-                _draft.value = _draft.value.copy(scheduleType = type)
                 addAiMessage(ChatContent.Text("「${value}」を選択しました。"))
-                moveToStep(WizardStep.SELECT_NOTIFY)
-            }
-
-            WizardStep.SELECT_NOTIFY -> {
-                val enabled = value == "あり"
-                _draft.value = _draft.value.copy(notifyEnabled = enabled)
-                addAiMessage(ChatContent.Text(
-                    if (enabled) "通知ありに設定しました。タイミングは後で設定します。"
-                    else "通知なしに設定しました。"
-                ))
-                moveToStep(WizardStep.SELECT_ROADMAP)
-            }
-
-            WizardStep.SELECT_ROADMAP -> {
-                val enabled = value == "あり"
-                _draft.value = _draft.value.copy(roadmapEnabled = enabled)
-                addAiMessage(ChatContent.Text(
-                    if (enabled) "ロードマップ機能をオンにしました。ステップは後で入力します。"
-                    else "ロードマップなしに設定しました。"
-                ))
                 moveToStep(WizardStep.INPUT_TITLE)
             }
 
             WizardStep.INPUT_MEMO -> {
-                // 「スキップ」ボタン
                 if (value == "スキップ") {
                     addAiMessage(ChatContent.Text("メモをスキップしました。"))
                     moveToDateStep()
@@ -391,8 +404,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
             WizardStep.SELECT_TIME -> {
                 if (value == "スキップ") {
-                    addAiMessage(ChatContent.Text("時刻設定をスキップしました。"))
-                    moveAfterTime()
+                    addAiMessage(ChatContent.Text("時刻をスキップしました。"))
+                    _draft.value = _draft.value.copy(startTime = "", endTime = "")
+                    moveToStep(WizardStep.SELECT_TAGS)
                 }
             }
 
@@ -414,32 +428,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
 
-            WizardStep.SET_NOTIFY_TIMING -> {
-                // 選択肢から分数を解析
-                val minutes = when (value) {
-                    "予定時刻" -> 0
-                    "5分前" -> 5
-                    "10分前" -> 10
-                    "15分前" -> 15
-                    "30分前" -> 30
-                    "1時間前" -> 60
-                    "1日前" -> 1440
-                    else -> 60
-                }
-                onNotifyTimingSelected(minutes)
-            }
-
-            WizardStep.INPUT_ROADMAP_STEPS -> {
-                if (value == "完了") {
-                    val steps = _draft.value.roadmapSteps
-                    if (steps.isEmpty()) {
-                        addAiMessage(ChatContent.Text("少なくとも1つのステップを追加してください。"))
-                    } else {
-                        moveToStep(WizardStep.CONFIRM)
-                    }
-                }
-            }
-
             WizardStep.CONFIRM -> {
                 when (value) {
                     "登録する" -> confirmRegistration()
@@ -453,14 +441,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // =========================================================
-    // ステップ遷移ヘルパー
+    // ステップ遷移
     // =========================================================
     private fun moveToStep(step: WizardStep) {
         _wizardStep.value = step
         when (step) {
             WizardStep.SELECT_TYPE -> {
                 addAiMessage(ChatContent.ChoiceButtons(
-                    prompt = "予定の種類を選択してください",
+                    prompt = "予定の種類を選んでください",
                     choices = listOf(
                         Choice("通常", "通常"),
                         Choice("期間", "期間"),
@@ -470,65 +458,46 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 ))
             }
 
-            WizardStep.SELECT_NOTIFY -> {
-                addAiMessage(ChatContent.ChoiceButtons(
-                    prompt = "通知は必要ですか？",
-                    choices = listOf(
-                        Choice("あり", "あり"),
-                        Choice("なし", "なし")
-                    )
-                ))
-            }
-
-            WizardStep.SELECT_ROADMAP -> {
-                addAiMessage(ChatContent.ChoiceButtons(
-                    prompt = "ロードマップ機能を使いますか？\n（大きなタスクをステップに分けて管理できます）",
-                    choices = listOf(
-                        Choice("あり", "あり"),
-                        Choice("なし", "なし")
-                    )
-                ))
-            }
-
             WizardStep.INPUT_TITLE -> {
                 addAiMessage(ChatContent.TextInput(
-                    prompt = "タスク名を入力してください（必須）",
+                    prompt = "タスク名を入力してください",
                     hint = "例: 歯医者、チームミーティング",
                     allowSkip = false
                 ))
             }
 
             WizardStep.INPUT_MEMO -> {
-                addAiMessage(ChatContent.TextInput(
-                    prompt = "メモがあれば入力してください",
-                    hint = "例: 資料を持参すること",
-                    allowSkip = true
+                addAiMessage(ChatContent.TextInputWithAi(
+                    prompt = "メモを入力してください",
+                    hint = "例: 資料を持参、場所は3階会議室",
+                    allowSkip = true,
+                    aiDescription = "入力内容をAIがきれいに整えます"
                 ))
             }
 
             WizardStep.SELECT_DATE -> {
-                val isRequired = !_draft.value.isIndefinite
+                val label = if (_draft.value.scheduleType == ScheduleType.PERIOD)
+                    "開始日を選んでください" else "日付を選んでください"
                 addAiMessage(ChatContent.DatePickerRequest(
-                    prompt = if (_draft.value.scheduleType == ScheduleType.PERIOD)
-                        "開始日を選択してください"
-                    else
-                        "日付を選択してください" +
-                        if (!isRequired) "（スキップ可能）" else "",
-                    allowSkip = !isRequired
+                    prompt = label + "\nカレンダーから選択、または「4月25日」のようにテキスト入力もできます",
+                    allowSkip = false,
+                    allowTextInput = true
                 ))
             }
 
             WizardStep.SELECT_END_DATE -> {
                 addAiMessage(ChatContent.DatePickerRequest(
-                    prompt = "終了日を選択してください",
-                    allowSkip = false
+                    prompt = "終了日を選んでください\nカレンダーまたはテキスト入力で指定できます",
+                    allowSkip = false,
+                    allowTextInput = true
                 ))
             }
 
             WizardStep.SELECT_TIME -> {
                 addAiMessage(ChatContent.TimePickerRequest(
-                    prompt = "時刻を設定してください",
-                    allowSkip = true
+                    prompt = "時刻を設定してください\n時計から選択、または「7時半」「14:00〜15:30」のように入力もできます",
+                    allowSkip = true,
+                    allowTextInput = true
                 ))
             }
 
@@ -540,35 +509,19 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
             WizardStep.SELECT_TAGS -> {
                 addAiMessage(ChatContent.TagPickerRequest(
-                    prompt = "タグを選択してください（複数選択可）",
+                    prompt = "タグを選択してください（複数可）",
                     allowSkip = true
                 ))
             }
 
             WizardStep.SELECT_RELATIONS -> {
-                addAiMessage(ChatContent.RelationPickerRequest(
-                    prompt = "関連する予定がありますか？（複数選択可）",
-                    allowSkip = true
-                ))
+                // suggestRelationsAndMove() で直接カード追加するのでここは空
             }
 
             WizardStep.SELECT_PHOTOS -> {
                 addAiMessage(ChatContent.PhotoPickerRequest(
-                    prompt = "写真を追加しますか？",
+                    prompt = "写真を追加しますか？\nカメラで撮影、またはギャラリーから選択できます",
                     allowSkip = true
-                ))
-            }
-
-            WizardStep.SET_NOTIFY_TIMING -> {
-                addAiMessage(ChatContent.NotifyTimingRequest(
-                    prompt = "いつ通知しますか？"
-                ))
-            }
-
-            WizardStep.INPUT_ROADMAP_STEPS -> {
-                addAiMessage(ChatContent.RoadmapStepInput(
-                    prompt = "ロードマップのステップを入力してください\n（1行に1ステップ、または1つずつ追加）",
-                    currentSteps = _draft.value.roadmapSteps
                 ))
             }
 
@@ -584,56 +537,294 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** メモの後→日付ステップへ（無期限はスキップ） */
+    /** メモの後→日付へ */
     private fun moveToDateStep() {
         val d = _draft.value
-        if (d.isIndefinite) {
-            // 無期限タスクは日付不要 → 時刻へ
-            moveToStep(WizardStep.SELECT_TIME)
-        } else if (d.scheduleType == ScheduleType.RECURRING) {
-            // 繰り返し → まず繰り返しパターン選択 → 日付 → 時刻
-            moveToStep(WizardStep.SELECT_RECURRENCE)
-        } else {
-            moveToStep(WizardStep.SELECT_DATE)
+        when {
+            d.isIndefinite -> moveToStep(WizardStep.SELECT_TIME)
+            d.scheduleType == ScheduleType.RECURRING -> moveToStep(WizardStep.SELECT_RECURRENCE)
+            else -> moveToStep(WizardStep.SELECT_DATE)
         }
     }
 
-    /** 時刻の後→タグ or 繰り返し日付 */
-    private fun moveAfterTime() {
+    /** 関連予定AI候補 → SELECT_RELATIONS */
+    private suspend fun suggestRelationsAndMove() {
         val d = _draft.value
-        if (d.scheduleType == ScheduleType.RECURRING && d.startDate.isEmpty()) {
-            // 繰り返しは日付も必要
-            moveToStep(WizardStep.SELECT_DATE)
-        } else {
-            moveToStep(WizardStep.SELECT_TAGS)
+        val tasks = _allTasks.value
+
+        var suggestedIds = emptyList<Int>()
+        var aiReason = ""
+
+        if (tasks.isNotEmpty() && d.title.isNotEmpty() && AiEngineManager.isLoaded()) {
+            try {
+                val taskList = tasks.take(30).joinToString("\n") { t ->
+                    "ID:${t.id} タイトル:${t.title} 日付:${t.startDate}"
+                }
+                val prompt = """以下のタスク一覧から「${d.title}」に関連しそうなタスクのIDを最大5件、
+JSON配列で返してください。関連がなければ空配列[]を返してください。
+理由も一言添えてください。
+
+フォーマット:
+{"ids":[1,2,3],"reason":"理由"}
+
+タスク一覧:
+$taskList"""
+
+                val response = withContext(Dispatchers.IO) {
+                    AiEngineManager.generateResponse(prompt)
+                }
+                if (response != null) {
+                    val jsonMatch = Regex("""\{[^}]*"ids"\s*:\s*\[([^\]]*)\][^}]*\}""")
+                        .find(response)
+                    if (jsonMatch != null) {
+                        val idsStr = jsonMatch.groupValues[1]
+                        suggestedIds = Regex("""\d+""").findAll(idsStr)
+                            .map { it.value.toIntOrNull() }
+                            .filterNotNull()
+                            .filter { id -> tasks.any { it.id == id } }
+                            .toList()
+                        val reasonMatch = Regex(""""reason"\s*:\s*"([^"]*)"?""")
+                            .find(jsonMatch.value)
+                        aiReason = reasonMatch?.groupValues?.getOrNull(1) ?: ""
+                    }
+                }
+                Log.d(TAG, "AI suggested relations: $suggestedIds reason=$aiReason")
+            } catch (e: Exception) {
+                Log.e(TAG, "relation suggestion error", e)
+            }
         }
+
+        _wizardStep.value = WizardStep.SELECT_RELATIONS
+        addAiMessage(ChatContent.RelationPickerRequest(
+            prompt = if (suggestedIds.isNotEmpty())
+                "AIが関連しそうな予定を見つけました" +
+                    if (aiReason.isNotEmpty()) "\n($aiReason)" else ""
+            else
+                "関連する予定を選択してください（複数可）",
+            suggestedTaskIds = suggestedIds,
+            allowSkip = true
+        ))
     }
 
-    /** 写真の後→通知 or ロードマップ or 確認 */
-    private fun moveAfterPhotos() {
-        val d = _draft.value
-        if (d.notifyEnabled) {
-            moveToStep(WizardStep.SET_NOTIFY_TIMING)
-        } else {
-            moveAfterNotify()
+    // =========================================================
+    // AI: メモ整形
+    // =========================================================
+    private suspend fun formatMemoWithAi(rawMemo: String): String {
+        if (!AiEngineManager.isLoaded()) {
+            Log.d(TAG, "AI not loaded, returning raw memo")
+            return rawMemo
         }
-    }
+        return try {
+            val prompt = """以下のメモを省略せず、読みやすく整えてください。
+内容は一切削除・要約しないでください。
+箇条書きがあればそのまま維持してください。
+元のメモ:
+$rawMemo
 
-    /** 通知の後→ロードマップ or 確認 */
-    private fun moveAfterNotify() {
-        val d = _draft.value
-        if (d.roadmapEnabled) {
-            moveToStep(WizardStep.INPUT_ROADMAP_STEPS)
-        } else {
-            moveToStep(WizardStep.CONFIRM)
+整えたメモ:"""
+
+            val response = withContext(Dispatchers.IO) {
+                AiEngineManager.generateResponse(prompt)
+            }
+            if (response != null && response.trim().isNotEmpty()) {
+                response.trim()
+            } else {
+                rawMemo
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "memo formatting error", e)
+            rawMemo
         }
     }
 
     // =========================================================
-    // 非ウィザード入力（検索 / 自由会話）
+    // AI: 日付テキスト解析
+    // =========================================================
+    private suspend fun parseDateWithAi(text: String): String? {
+        // まずルールベースで試行
+        val ruleBased = parseDateRuleBased(text)
+        if (ruleBased != null) return ruleBased
+
+        // AIで解析
+        if (!AiEngineManager.isLoaded()) return null
+        return try {
+            val today = LocalDate.now()
+            val prompt = """今日は${today.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))}です。
+以下のテキストから日付を読み取り、yyyy-MM-dd形式で返してください。
+日付だけを返し、他の文字は含めないでください。
+読み取れない場合は「不明」と返してください。
+
+テキスト: $text"""
+
+            val response = withContext(Dispatchers.IO) {
+                AiEngineManager.generateResponse(prompt)
+            }
+            if (response != null) {
+                val dateMatch = Regex("""\d{4}-\d{2}-\d{2}""").find(response.trim())
+                dateMatch?.value
+            } else null
+        } catch (e: Exception) {
+            Log.e(TAG, "date parsing error", e)
+            null
+        }
+    }
+
+    /** ルールベース日付パース */
+    private fun parseDateRuleBased(text: String): String? {
+        val today = LocalDate.now()
+        val fmt = DateTimeFormatter.ISO_LOCAL_DATE
+
+        // 今日, 明日, 明後日
+        if (text.contains("今日")) return today.format(fmt)
+        if (text.contains("明後日")) return today.plusDays(2).format(fmt)
+        if (text.contains("明日")) return today.plusDays(1).format(fmt)
+
+        // 「4月25日」「4/25」「2026年4月25日」
+        val patterns = listOf(
+            Regex("""(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日"""),
+            Regex("""(\d{1,2})\s*月\s*(\d{1,2})\s*日"""),
+            Regex("""(\d{1,2})/(\d{1,2})"""),
+            Regex("""(\d{4})[/-](\d{1,2})[/-](\d{1,2})""")
+        )
+
+        // yyyy年M月d日
+        patterns[0].find(text)?.let {
+            return try {
+                LocalDate.of(
+                    it.groupValues[1].toInt(),
+                    it.groupValues[2].toInt(),
+                    it.groupValues[3].toInt()
+                ).format(fmt)
+            } catch (_: Exception) { null }
+        }
+
+        // M月d日
+        patterns[1].find(text)?.let {
+            return try {
+                var date = LocalDate.of(
+                    today.year, it.groupValues[1].toInt(), it.groupValues[2].toInt()
+                )
+                if (date.isBefore(today)) date = date.plusYears(1)
+                date.format(fmt)
+            } catch (_: Exception) { null }
+        }
+
+        // M/d
+        patterns[2].find(text)?.let {
+            return try {
+                var date = LocalDate.of(
+                    today.year, it.groupValues[1].toInt(), it.groupValues[2].toInt()
+                )
+                if (date.isBefore(today)) date = date.plusYears(1)
+                date.format(fmt)
+            } catch (_: Exception) { null }
+        }
+
+        // yyyy-MM-dd
+        patterns[3].find(text)?.let {
+            return try {
+                LocalDate.of(
+                    it.groupValues[1].toInt(),
+                    it.groupValues[2].toInt(),
+                    it.groupValues[3].toInt()
+                ).format(fmt)
+            } catch (_: Exception) { null }
+        }
+
+        return null
+    }
+
+    // =========================================================
+    // AI: 時刻テキスト解析
+    // =========================================================
+    private suspend fun parseTimeWithAi(text: String): Pair<String, String>? {
+        // ルールベース
+        val ruleBased = parseTimeRuleBased(text)
+        if (ruleBased != null) return ruleBased
+
+        // AI
+        if (!AiEngineManager.isLoaded()) return null
+        return try {
+            val prompt = """以下のテキストから時刻を読み取り、HH:mm形式で返してください。
+範囲がある場合は「HH:mm-HH:mm」の形式で返してください。
+時刻だけを返し、他の文字は含めないでください。
+読み取れない場合は「不明」と返してください。
+
+テキスト: $text"""
+
+            val response = withContext(Dispatchers.IO) {
+                AiEngineManager.generateResponse(prompt)
+            }
+            if (response != null) {
+                val rangeMatch = Regex("""(\d{2}:\d{2})\s*[-〜~]\s*(\d{2}:\d{2})""")
+                    .find(response.trim())
+                if (rangeMatch != null) {
+                    Pair(rangeMatch.groupValues[1], rangeMatch.groupValues[2])
+                } else {
+                    val singleMatch = Regex("""\d{2}:\d{2}""").find(response.trim())
+                    if (singleMatch != null) Pair(singleMatch.value, "") else null
+                }
+            } else null
+        } catch (e: Exception) {
+            Log.e(TAG, "time parsing error", e)
+            null
+        }
+    }
+
+    /** ルールベース時刻パース */
+    private fun parseTimeRuleBased(text: String): Pair<String, String>? {
+        // 「HH:mm〜HH:mm」
+        Regex("""(\d{1,2}):(\d{2})\s*[-〜~]\s*(\d{1,2}):(\d{2})""").find(text)?.let {
+            val s = String.format(Locale.getDefault(), "%02d:%02d", it.groupValues[1].toInt(), it.groupValues[2].toInt())
+            val e = String.format(Locale.getDefault(), "%02d:%02d", it.groupValues[3].toInt(), it.groupValues[4].toInt())
+            return Pair(s, e)
+        }
+
+        // 「HH:mm」
+        Regex("""(\d{1,2}):(\d{2})""").find(text)?.let {
+            return Pair(
+                String.format(Locale.getDefault(), "%02d:%02d", it.groupValues[1].toInt(), it.groupValues[2].toInt()),
+                ""
+            )
+        }
+
+        // 「7時半」「7時30分」「14時」
+        Regex("""(\d{1,2})\s*時\s*半""").find(text)?.let {
+            return Pair(String.format(Locale.getDefault(), "%02d:30", it.groupValues[1].toInt()), "")
+        }
+        Regex("""(\d{1,2})\s*時\s*(\d{1,2})\s*分""").find(text)?.let {
+            return Pair(
+                String.format(Locale.getDefault(), "%02d:%02d", it.groupValues[1].toInt(), it.groupValues[2].toInt()),
+                ""
+            )
+        }
+        Regex("""(\d{1,2})\s*時""").find(text)?.let {
+            return Pair(String.format(Locale.getDefault(), "%02d:00", it.groupValues[1].toInt()), "")
+        }
+
+        // 「午前9時」「午後3時半」
+        Regex("""午前\s*(\d{1,2})\s*時\s*半""").find(text)?.let {
+            return Pair(String.format(Locale.getDefault(), "%02d:30", it.groupValues[1].toInt()), "")
+        }
+        Regex("""午後\s*(\d{1,2})\s*時\s*半""").find(text)?.let {
+            val h = it.groupValues[1].toInt().let { v -> if (v < 12) v + 12 else v }
+            return Pair(String.format(Locale.getDefault(), "%02d:30", h), "")
+        }
+        Regex("""午前\s*(\d{1,2})\s*時""").find(text)?.let {
+            return Pair(String.format(Locale.getDefault(), "%02d:00", it.groupValues[1].toInt()), "")
+        }
+        Regex("""午後\s*(\d{1,2})\s*時""").find(text)?.let {
+            val h = it.groupValues[1].toInt().let { v -> if (v < 12) v + 12 else v }
+            return Pair(String.format(Locale.getDefault(), "%02d:00", h), "")
+        }
+
+        return null
+    }
+
+    // =========================================================
+    // 非ウィザード（検索/自由会話）
     // =========================================================
     private suspend fun handleNonWizardInput(text: String) {
-        // 日付検索
         val dateMatch = detectDateKeyword(text)
         if (dateMatch != null) {
             val tasks = withContext(Dispatchers.IO) {
@@ -644,14 +835,13 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             } else {
                 val summary = tasks.joinToString("\n") { t ->
                     val time = if (t.startTime != null) " ${t.startTime}" else ""
-                    "• ${t.title}$time"
+                    "・ ${t.title}$time"
                 }
                 addAiMessage(ChatContent.Text("${dateMatch} の予定:\n$summary"))
             }
             return
         }
 
-        // AI 自由応答
         if (AiEngineManager.isLoaded()) {
             val response = withContext(Dispatchers.IO) {
                 AiEngineManager.generateResponse(text)
@@ -659,21 +849,18 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             if (response != null) {
                 addAiMessage(ChatContent.Text(response))
             } else {
-                addAiMessage(ChatContent.Text(
-                    "応答を生成できませんでした。「予定を登録」で予定登録を開始できます。"
-                ))
+                addAiMessage(ChatContent.Text("応答を生成できませんでした。"))
             }
         } else {
             addAiMessage(ChatContent.Text(
-                "AI エンジンが読み込まれていません。\n" +
-                "設定画面からAI機能を有効にしてください。\n\n" +
-                "「予定を登録」と入力すると、AI無しでも予定登録ができます。"
+                "「予定を登録」と入力するとAI無しでも予定登録ができます。\n" +
+                "AI機能を使うには設定画面から有効にしてください。"
             ))
         }
     }
 
     // =========================================================
-    // DB 登録
+    // DB登録
     // =========================================================
     private suspend fun registerTask(d: DraftTaskData): Int = withContext(Dispatchers.IO) {
         val now = LocalDateTime.now()
@@ -693,11 +880,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 RecurrencePattern.valueOf(d.recurrencePattern) else null,
             recurrenceDays = d.recurrenceDays.ifEmpty { null },
             recurrenceEndDate = d.recurrenceEndDate.ifEmpty { null },
-            priority = d.priority,
-            notifyEnabled = d.notifyEnabled,
-            notifyMinutesBefore = d.notifyMinutesBefore,
+            priority = 1, // 中（デフォルト）
+            notifyEnabled = true,           // 全タスク通知あり
+            notifyMinutesBefore = 1440,     // 1日前（1440分）
             isIndefinite = d.isIndefinite,
-            roadmapEnabled = d.roadmapEnabled,
+            roadmapEnabled = false,         // 後で編集画面から追加
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
@@ -716,26 +903,10 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             relationDao.insert(TaskRelation(taskId1 = id1, taskId2 = id2))
         }
 
-        // ロードマップステップ
-        if (d.roadmapEnabled && d.roadmapSteps.isNotEmpty()) {
-            d.roadmapSteps.forEachIndexed { index, step ->
-                roadmapStepDao.insert(
-                    RoadmapStep(
-                        taskId = taskId,
-                        title = step.title,
-                        date = step.date.ifEmpty { null },
-                        sortOrder = index
-                    )
-                )
-            }
-        }
-
-        // 通知スケジュール
-        if (d.notifyEnabled) {
-            val registeredTask = taskDao.getById(taskId)
-            if (registeredTask != null) {
-                AlarmScheduler.scheduleForTask(getApplication(), registeredTask)
-            }
+        // 通知スケジュール（常に1日前）
+        val registeredTask = taskDao.getById(taskId)
+        if (registeredTask != null) {
+            AlarmScheduler.scheduleForTask(getApplication(), registeredTask)
         }
 
         taskId
@@ -750,8 +921,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun addUserMessage(text: String) {
         _messages.value = _messages.value + ChatMessage(
-            content = ChatContent.Text(text),
-            isUser = true
+            content = ChatContent.Text(text), isUser = true
         )
     }
 
@@ -767,38 +937,28 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun detectDateKeyword(text: String): String? {
         val today = LocalDate.now()
+        val fmt = DateTimeFormatter.ISO_LOCAL_DATE
         return when {
-            text.contains("今日") -> today.format(DateTimeFormatter.ISO_LOCAL_DATE)
-            text.contains("明日") -> today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
-            text.contains("明後日") -> today.plusDays(2).format(DateTimeFormatter.ISO_LOCAL_DATE)
+            text.contains("今日") -> today.format(fmt)
+            text.contains("明後日") -> today.plusDays(2).format(fmt)
+            text.contains("明日") -> today.plusDays(1).format(fmt)
             else -> {
-                val regex = Regex("""(\d{4})[/-](\d{1,2})[/-](\d{1,2})""")
-                regex.find(text)?.let {
+                Regex("""(\d{4})[/-](\d{1,2})[/-](\d{1,2})""").find(text)?.let {
                     try {
-                        val d = LocalDate.of(
+                        LocalDate.of(
                             it.groupValues[1].toInt(),
                             it.groupValues[2].toInt(),
                             it.groupValues[3].toInt()
-                        )
-                        d.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                        ).format(fmt)
                     } catch (_: Exception) { null }
                 }
             }
         }
     }
 
-    private fun recurrenceLabel(pattern: String): String {
-        return when (pattern) {
-            "DAILY" -> "毎日"
-            "WEEKLY" -> "毎週"
-            "BIWEEKLY" -> "隔週"
-            "MONTHLY_DATE" -> "毎月（日付）"
-            "MONTHLY_WEEK" -> "毎月（曜日）"
-            "YEARLY" -> "毎年"
-            "EVERY_N_DAYS" -> "N日ごと"
-            "WEEKLY_MULTI" -> "毎週（複数曜日）"
-            "MONTHLY_DATES" -> "毎月（複数日付）"
-            else -> pattern
-        }
+    private fun recurrenceLabel(pattern: String): String = when (pattern) {
+        "DAILY" -> "毎日"; "WEEKLY" -> "毎週"; "BIWEEKLY" -> "隔週"
+        "MONTHLY_DATE" -> "毎月（日付）"; "MONTHLY_WEEK" -> "毎月（曜日）"
+        "YEARLY" -> "毎年"; else -> pattern
     }
 }
