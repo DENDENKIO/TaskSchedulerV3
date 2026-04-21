@@ -11,6 +11,8 @@ import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.data.model.TaskTagCrossRef
 import com.example.taskschedulerv3.notification.AlarmScheduler
 import com.example.taskschedulerv3.util.AiEngineManager
+import com.example.taskschedulerv3.util.AiPreferences
+import com.example.taskschedulerv3.util.OcrTextParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -133,13 +135,28 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun parseTaskWithAi(text: String) {
+        // AIエンジンがロードされていなければロードを試みる
         if (!AiEngineManager.isLoaded()) {
-            addAiMessage(ChatContent.Text("AIエンジンが準備中ですが、簡易登録を試みます。"))
+            val isAiEnabled = AiPreferences.getAiEnabled(getApplication()).first()
+            if (isAiEnabled) {
+                // 初回ロードは数秒〜十数秒かかるため、ユーザーにメッセージを表示
+                addAiMessage(ChatContent.Text("AIモデルを準備しています...少しお待ちください。"))
+                withContext(Dispatchers.IO) {
+                    AiEngineManager.loadEngine(getApplication())
+                }
+            }
+        }
+
+        // それでもロードできなかった場合（設定でOFFになっている等）はフォールバック
+        if (!AiEngineManager.isLoaded()) {
+            addAiMessage(ChatContent.Text("AIエンジンが利用できないため、簡易抽出を試みます。設定でAI機能がONになっているか確認してください。"))
             fallbackRegistration(text)
             return
         }
 
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        
+        // プロンプトのルールを強化し、要約・場所・メモへの振り分けを徹底
         val prompt = """
         ユーザーの自然文から予定情報を抽出し、JSON形式で返してください。
         今日の日付: $today
@@ -159,6 +176,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
         
         入力テキスト: $text
+        
+        ルール:
+        - titleは予定の内容を端的に表す短いフレーズに要約する（例:「ミーティング」「歯医者」）
+        - 事務所、会議室、新宿などの場所を示す単語は location に入れる
+        - ユーザーの入力した詳細な内容や文脈はわかりやすく memo に入れる
+        - 該当する情報がない場合は空文字""にする
+        - 日付や時刻のフォーマットは必ず上記形式に従う
+        - 出力はJSONのみ。説明文やMarkdown装飾は不要
         """.trimIndent()
 
         val response = withContext(Dispatchers.IO) {
@@ -368,9 +393,21 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    // フォールバック時にも最低限の日付・時刻を抽出する
     private fun fallbackRegistration(text: String) {
-        _draft.value = DraftTaskData(title = text)
-        addAiMessage(ChatContent.Text("AI解析ができませんでしたが、タイトル『$text』で登録準備をしました。詳細を教えていただくか、このまま確認にお進みください。"))
+        val parsed = OcrTextParser.fallbackParseFromOcr(text)
+        val title = parsed.title ?: text
+        
+        _draft.value = DraftTaskData(
+            title = title,
+            startDate = parsed.date ?: "",
+            startTime = parsed.startTime,
+            endTime = parsed.endTime,
+            memo = parsed.summary ?: "",
+            location = null // 簡易抽出では場所の特定までは行わない
+        )
+        
+        addAiMessage(ChatContent.Text("自動抽出で登録準備をしました。詳細を教えていただくか、このまま確認にお進みください。"))
         showConfirmation()
     }
 
