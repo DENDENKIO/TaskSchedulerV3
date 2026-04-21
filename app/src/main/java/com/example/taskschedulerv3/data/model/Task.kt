@@ -23,6 +23,7 @@ data class Task(
     val isDeleted: Boolean = false,
     val deletedAt: Long? = null,
     val isIndefinite: Boolean = false,     // 無期限登録フラグ
+    val location: String? = null,          // 場所
     val progress: Int = 0,                 // 進捗率 (0-100)
     val parentTaskId: Int? = null,         // 親タスクID
     val roadmapEnabled: Boolean = false,   // ロードマップ有効フラグ

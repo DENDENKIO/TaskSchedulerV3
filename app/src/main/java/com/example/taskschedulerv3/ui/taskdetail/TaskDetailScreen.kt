@@ -112,6 +112,11 @@ fun TaskDetailScreen(
                         InfoRow(label = "時刻", value = "${t.startTime}${t.endTime?.let { " 〜 $it" } ?: ""}")
                     }
                 }
+                if (!t.location.isNullOrEmpty()) {
+                    item {
+                        InfoRow(label = "場所", value = t.location)
+                    }
+                }
 
                 // Recurrence info
                 if (t.scheduleType == ScheduleType.RECURRING && t.recurrencePattern != null) {

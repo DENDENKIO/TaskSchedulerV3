@@ -25,6 +25,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
     private val crossRefDao = db.taskTagCrossRefDao()
 
     val title = MutableStateFlow("")
+    val location = MutableStateFlow("")
     val description = MutableStateFlow("")
     val startDate = MutableStateFlow("")
     val endDate = MutableStateFlow("")
@@ -78,6 +79,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         _editId = taskId
         repo.getById(taskId)?.let { t ->
             title.value = t.title
+            location.value = t.location ?: ""
             description.value = t.description ?: ""
             startDate.value = t.startDate
             endDate.value = t.endDate ?: ""
@@ -108,6 +110,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetState() {
         title.value = ""
+        location.value = ""
         description.value = ""
         startDate.value = ""
         endDate.value = ""
@@ -191,6 +194,7 @@ class AddTaskViewModel(app: Application) : AndroidViewModel(app) {
         val task = Task(
             id = editId ?: 0,
             title = title.value.trim(),
+            location = location.value.trim().ifEmpty { null },
             description = description.value.trim().ifEmpty { null },
             startDate = if (isIndefinite.value) "" else startDate.value,
             endDate = if (isIndefinite.value) null else endDate.value.ifEmpty { null },

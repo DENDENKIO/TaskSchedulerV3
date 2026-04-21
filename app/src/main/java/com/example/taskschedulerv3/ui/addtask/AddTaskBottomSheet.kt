@@ -58,6 +58,7 @@ fun AddTaskBottomSheet(
     var sheetHeight by remember { mutableFloatStateOf(0f) }
 
     val title by vm.title.collectAsState()
+    val location by vm.location.collectAsState()
     val description by vm.description.collectAsState()
     val startDate by vm.startDate.collectAsState()
     val startTime by vm.startTime.collectAsState()
@@ -331,6 +332,14 @@ fun AddTaskBottomSheet(
                 onValueChange = { vm.title.value = it },
                 label = { Text("タスク名") },
                 modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = location,
+                onValueChange = { vm.location.value = it },
+                label = { Text("場所") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
             )
 
             OutlinedTextField(

@@ -3,17 +3,17 @@ package com.example.taskschedulerv3.ui.aichat
 import com.example.taskschedulerv3.data.model.ScheduleType
 
 // =============================================
-// ウィザードステップ（簡略化版）
+// ウィザードステップ（ロードマップ準拠＋場所追加）
 // =============================================
 enum class WizardStep {
     IDLE,
     SELECT_TYPE,        // Step 1: 予定の種類
     INPUT_TITLE,        // Step 2: タスク名
+    INPUT_LOCATION,     // Step 2.5: 場所（追加）
     INPUT_MEMO,         // Step 3: メモ（AI整形）
     SELECT_DATE,        // Step 4: 日付
     SELECT_END_DATE,    // Step 4b: 終了日（期間のみ）
     SELECT_TIME,        // Step 5: 時刻
-    SELECT_RECURRENCE,  // 繰り返しパターン
     SELECT_TAGS,        // Step 6: タグ
     SELECT_RELATIONS,   // Step 7: 関連予定（AI候補）
     SELECT_PHOTOS,      // Step 8: 写真追加
@@ -27,6 +27,7 @@ enum class WizardStep {
 data class DraftTaskData(
     val scheduleType: ScheduleType = ScheduleType.NORMAL,
     val title: String = "",
+    val location: String = "",       // 追加
     val memo: String = "",
     val startDate: String = "",      // yyyy-MM-dd
     val endDate: String = "",        // yyyy-MM-dd（期間タスク用）
@@ -135,7 +136,6 @@ data class Choice(
 // チャットメッセージ
 // =============================================
 data class ChatMessage(
-    val id: String = java.util.UUID.randomUUID().toString(),
     val content: ChatContent,
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis()
