@@ -69,7 +69,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             tagDao.getAll().collect { _allTags.value = it }
         }
         viewModelScope.launch {
-            taskDao.getAllTasks().collect {
+            taskDao.getAll().collect {
                 _allTasks.value = it.filter { t -> !t.isDeleted && !t.isCompleted }
             }
         }
@@ -515,7 +515,7 @@ $taskList"""
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
-        val taskId = taskDao.insertTask(task).toInt()
+        val taskId = taskDao.insert(task).toInt()
         d.tagIds.forEach { crossRefDao.insert(TaskTagCrossRef(taskId = taskId, tagId = it)) }
         d.relatedTaskIds.forEach { relationDao.insert(TaskRelation(taskId1 = minOf(taskId, it), taskId2 = maxOf(taskId, it))) }
         
@@ -536,7 +536,7 @@ $taskList"""
             }
         }
 
-        val registered = taskDao.getTaskById(taskId)
+        val registered = taskDao.getById(taskId)
         if (registered != null) AlarmScheduler.scheduleForTask(getApplication(), registered)
         taskId
     }
