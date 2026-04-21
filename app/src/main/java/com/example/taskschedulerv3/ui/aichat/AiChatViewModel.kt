@@ -32,6 +32,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private val db = AppDatabase.getInstance(application)
+    private val taskDao = db.taskDao()
     private val crossRefDao = db.taskTagCrossRefDao()
     private val tagDao = db.tagDao()
 
