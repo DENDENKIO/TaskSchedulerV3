@@ -156,6 +156,7 @@ fun AiChatScreen(
 // =============================================
 // メッセージ振り分け
 // =============================================
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChatMessageItem(
     message: ChatMessage,

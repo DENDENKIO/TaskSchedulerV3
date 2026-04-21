@@ -14,6 +14,7 @@ import com.example.taskschedulerv3.data.model.TaskTagCrossRef
 import com.example.taskschedulerv3.data.repository.TaskRepository
 import com.example.taskschedulerv3.notification.AlarmScheduler
 import com.example.taskschedulerv3.util.AiEngineManager
+import com.example.taskschedulerv3.util.AiModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,6 +70,24 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             taskDao.getAll().collect {
                 _allTasks.value = it.filter { t -> !t.isDeleted && !t.isCompleted }
+            }
+        }
+        // AIエンジンのロード
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                if (AiModelManager.checkModelExists(context) &&
+                    !AiEngineManager.isLoaded()) {
+                    Log.d(TAG, "Loading AI engine for chat...")
+                    AiEngineManager.loadEngine(context)
+                    if (AiEngineManager.isLoaded()) {
+                        Log.d(TAG, "AI engine loaded successfully")
+                    } else {
+                        Log.w(TAG, "AI engine failed to load: ${AiEngineManager.getInitError()}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "AI engine load error", e)
             }
         }
     }
