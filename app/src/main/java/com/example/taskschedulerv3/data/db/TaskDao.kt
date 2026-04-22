@@ -78,4 +78,20 @@ interface TaskDao {
 
     @Query("UPDATE tasks SET progress = :progress, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateProgress(id: Int, progress: Int, updatedAt: Long)
+
+    // AIチャット用: 日付範囲で未完了タスクを取得
+    @Query("SELECT * FROM tasks WHERE startDate BETWEEN :fromDate AND :toDate AND isDeleted = 0 AND isCompleted = 0 ORDER BY startDate ASC, startTime ASC")
+    suspend fun getTasksBetweenDates(fromDate: String, toDate: String): List<Task>
+
+    // AIチャット用: 全未完了タスクを取得（直近順）
+    @Query("SELECT * FROM tasks WHERE isDeleted = 0 AND isCompleted = 0 ORDER BY startDate ASC, startTime ASC LIMIT :limit")
+    suspend fun getUpcomingTasks(limit: Int = 50): List<Task>
+
+    // AIチャット用: キーワード検索（同期）
+    @Query("SELECT * FROM tasks WHERE (title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%' OR location LIKE '%' || :query || '%') AND isDeleted = 0 AND isCompleted = 0 ORDER BY startDate ASC")
+    suspend fun searchTasksSync(query: String): List<Task>
+
+    // AIチャット用: 特定日のタスクを取得（同期）
+    @Query("SELECT * FROM tasks WHERE startDate = :date AND isDeleted = 0 ORDER BY startTime ASC")
+    suspend fun getTasksByDateSync(date: String): List<Task>
 }

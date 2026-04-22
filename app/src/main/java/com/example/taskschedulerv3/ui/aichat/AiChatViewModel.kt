@@ -25,7 +25,9 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.time.DayOfWeek
 import java.time.Duration
+import java.time.temporal.TemporalAdjusters
 
 class AiChatViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -57,8 +59,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         addAiMessage(ChatContent.Text(
-            "こんにちは！AIアシスタントです。予定の登録をお手伝いします。\n" +
-            "「予定を登録」と入力すると、自然な文章から予定を作成できます。"
+            "こんにちは！AIアシスタントです。\n" +
+            "・「明日の予定は？」「今週の予定を教えて」などで登録済みの予定を確認できます\n" +
+            "・「予定を登録」と入力すると、自然な文章から予定を作成できます"
         ))
         viewModelScope.launch {
             tagDao.getAll().collect { _allTags.value = it }
@@ -427,12 +430,266 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         return text.contains("キャンセル") || text.contains("やめる")
     }
 
+    // ── 予定照会機能 ──────────────────────────────────────────
+
+    /**
+     * ユーザーの自然文が「予定を聞いている」かどうかを判定し、
+     * 該当する場合はDBからタスクを取得してAI応答に組み込む。
+     */
     private suspend fun handleNormalChat(text: String) {
+        // 1. 予定照会インテント判定
+        val queryIntent = detectScheduleQueryIntent(text)
+
+        if (queryIntent != null) {
+            handleScheduleQuery(queryIntent, text)
+            return
+        }
+
+        // 2. 通常の会話（予定照会でない場合）
+        //    ユーザーが予定に関する漠然とした質問をしている場合にも対応するため、
+        //    直近の予定をコンテキストとして渡す
+        val upcomingTasks = withContext(Dispatchers.IO) {
+            taskDao.getUpcomingTasks(20)
+        }
+        val taskContext = if (upcomingTasks.isNotEmpty()) {
+            formatTasksForAi(upcomingTasks)
+        } else ""
+
         if (AiEngineManager.isLoaded()) {
-            val resp = withContext(Dispatchers.IO) { AiEngineManager.generateResponse(text) }
+            val systemPrompt = buildChatSystemPrompt(taskContext)
+            val resp = withContext(Dispatchers.IO) {
+                AiEngineManager.generateChatResponse(text, systemPrompt)
+            }
             addAiMessage(ChatContent.Text(resp ?: "すみません、よくわかりませんでした。"))
         } else {
-            addAiMessage(ChatContent.Text("こんにちは！何かお手伝いできることはありますか？"))
+            // AIエンジン未ロード時もDBから直接応答
+            if (upcomingTasks.isNotEmpty()) {
+                addAiMessage(ChatContent.Text(
+                    "直近の予定はこちらです:\n" + formatTasksReadable(upcomingTasks.take(5))
+                ))
+            } else {
+                addAiMessage(ChatContent.Text("こんにちは！何かお手伝いできることはありますか？"))
+            }
         }
     }
+
+    /**
+     * 予定照会インテントを検出する。
+     * 「明日の予定」「今週のスケジュール」「来週の月曜」等の日付キーワードを解析し、
+     * 対象日付範囲を返す。照会でない場合はnullを返す。
+     */
+    private fun detectScheduleQueryIntent(text: String): ScheduleQueryIntent? {
+        val today = LocalDate.now()
+        val tomorrow = today.plusDays(1)
+
+        // キーワードパターンで照会インテントを判定
+        val queryKeywords = listOf(
+            "予定", "スケジュール", "タスク", "何がある", "何かある",
+            "やること", "やる事", "用事", "計画"
+        )
+        val hasQueryKeyword = queryKeywords.any { text.contains(it) }
+        // 質問形式の判定
+        val isQuestion = text.contains("？") || text.contains("?") ||
+            text.contains("教えて") || text.contains("ある？") ||
+            text.contains("ありますか") || text.contains("ある?") ||
+            text.contains("何") || text.contains("確認") ||
+            text.contains("見せて") || text.contains("一覧")
+
+        if (!hasQueryKeyword && !isQuestion) return null
+        // 「予定を登録」は除外
+        if (isRegistrationIntent(text)) return null
+
+        // 日付範囲の特定
+        return when {
+            text.contains("今日") -> ScheduleQueryIntent(
+                fromDate = today, toDate = today, label = "今日"
+            )
+            text.contains("明日") -> ScheduleQueryIntent(
+                fromDate = tomorrow, toDate = tomorrow, label = "明日"
+            )
+            text.contains("明後日") || text.contains("あさって") -> ScheduleQueryIntent(
+                fromDate = today.plusDays(2), toDate = today.plusDays(2), label = "明後日"
+            )
+            text.contains("今週") -> ScheduleQueryIntent(
+                fromDate = today,
+                toDate = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)),
+                label = "今週"
+            )
+            text.contains("来週") -> {
+                val nextMon = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+                ScheduleQueryIntent(
+                    fromDate = nextMon,
+                    toDate = nextMon.plusDays(6),
+                    label = "来週"
+                )
+            }
+            text.contains("今月") -> ScheduleQueryIntent(
+                fromDate = today,
+                toDate = today.withDayOfMonth(today.lengthOfMonth()),
+                label = "今月"
+            )
+            text.contains("来月") -> {
+                val nextMonth = today.plusMonths(1)
+                ScheduleQueryIntent(
+                    fromDate = nextMonth.withDayOfMonth(1),
+                    toDate = nextMonth.withDayOfMonth(nextMonth.lengthOfMonth()),
+                    label = "来月"
+                )
+            }
+            // 特定の日付パターン（X月X日）
+            text.contains(Regex("""(\d{1,2})月(\d{1,2})日""")) -> {
+                val match = Regex("""(\d{1,2})月(\d{1,2})日""").find(text)
+                if (match != null) {
+                    val month = match.groupValues[1].toInt()
+                    val day = match.groupValues[2].toInt()
+                    try {
+                        var targetDate = today.withMonth(month).withDayOfMonth(day)
+                        // 過去の日付なら来年に
+                        if (targetDate.isBefore(today)) targetDate = targetDate.plusYears(1)
+                        ScheduleQueryIntent(
+                            fromDate = targetDate, toDate = targetDate,
+                            label = "${month}月${day}日"
+                        )
+                    } catch (e: Exception) { null }
+                } else null
+            }
+            // キーワードが一致しているが日付指定がない → 直近全体
+            hasQueryKeyword -> ScheduleQueryIntent(
+                fromDate = today, toDate = today.plusDays(7), label = "今後1週間"
+            )
+            else -> null
+        }
+    }
+
+    /**
+     * 予定照会を処理する
+     */
+    private suspend fun handleScheduleQuery(intent: ScheduleQueryIntent, originalText: String) {
+        val tasks = withContext(Dispatchers.IO) {
+            taskDao.getTasksBetweenDates(
+                intent.fromDate.toString(),
+                intent.toDate.toString()
+            )
+        }
+
+        if (tasks.isEmpty()) {
+            addAiMessage(ChatContent.Text(
+                "${intent.label}（${formatDateRange(intent)}）の予定は登録されていません。"
+            ))
+            return
+        }
+
+        // AIエンジンが使える場合は自然文で応答
+        if (AiEngineManager.isLoaded()) {
+            val taskListStr = formatTasksForAi(tasks)
+            val systemPrompt = """
+                あなたはタスク管理アプリ「TaskScheduler」のAIアシスタントです。
+                ユーザーの登録済み予定データを参照して質問に答えてください。
+                
+                【重要ルール】
+                - 以下の予定データは実際にユーザーが登録した予定です。必ず参照して回答してください
+                - 予定がある場合は具体的にタイトル・日付・時刻・場所を含めて回答してください
+                - 予定の件数を正確に伝えてください
+                - 回答は簡潔で親しみやすい日本語にしてください
+                - Markdown記法は使わず、箇条書きは「・」を使ってください
+                
+                【登録済み予定データ】
+                $taskListStr
+                
+                今日の日付: ${LocalDate.now()}
+            """.trimIndent()
+
+            val resp = withContext(Dispatchers.IO) {
+                AiEngineManager.generateChatResponse(originalText, systemPrompt)
+            }
+            addAiMessage(ChatContent.Text(resp ?: formatTasksFallbackResponse(intent, tasks)))
+        } else {
+            // AIエンジンが使えない場合はフォーマットして直接表示
+            addAiMessage(ChatContent.Text(formatTasksFallbackResponse(intent, tasks)))
+        }
+    }
+
+    // ── フォーマットユーティリティ ──────────────────────────
+
+    /**
+     * タスクリストをAIプロンプト用のテキストにフォーマットする
+     */
+    private fun formatTasksForAi(tasks: List<Task>): String {
+        return tasks.mapIndexed { index, task ->
+            val timeStr = buildString {
+                if (!task.startTime.isNullOrEmpty()) append(task.startTime)
+                if (!task.endTime.isNullOrEmpty()) append("~${task.endTime}")
+            }
+            val locationStr = if (!task.location.isNullOrEmpty()) " [場所: ${task.location}]" else ""
+            val memoStr = if (!task.description.isNullOrEmpty()) " (メモ: ${task.description})" else ""
+            val completedStr = if (task.isCompleted) " [完了]" else ""
+
+            "${index + 1}. ${task.startDate} ${timeStr} - ${task.title}${locationStr}${memoStr}${completedStr}"
+        }.joinToString("\n")
+    }
+
+    /**
+     * タスクリストをユーザー向けの読みやすい形式にフォーマットする
+     */
+    private fun formatTasksReadable(tasks: List<Task>): String {
+        return tasks.joinToString("\n") { task ->
+            val timeStr = if (!task.startTime.isNullOrEmpty()) " ${task.startTime}" else ""
+            val locationStr = if (!task.location.isNullOrEmpty()) " @${task.location}" else ""
+            "・${task.startDate}${timeStr} ${task.title}${locationStr}"
+        }
+    }
+
+    /**
+     * AIが使えない場合のフォールバック応答
+     */
+    private fun formatTasksFallbackResponse(intent: ScheduleQueryIntent, tasks: List<Task>): String {
+        val header = "${intent.label}の予定は${tasks.size}件です：\n"
+        return header + formatTasksReadable(tasks)
+    }
+
+    /**
+     * 日付範囲を表示用テキストにフォーマットする
+     */
+    private fun formatDateRange(intent: ScheduleQueryIntent): String {
+        val fmt = DateTimeFormatter.ofPattern("M/d")
+        return if (intent.fromDate == intent.toDate) {
+            intent.fromDate.format(fmt)
+        } else {
+            "${intent.fromDate.format(fmt)}~${intent.toDate.format(fmt)}"
+        }
+    }
+
+    /**
+     * 通常チャット用のシステムプロンプトを構築する。
+     * 直近のタスク情報をコンテキストとして含める。
+     */
+    private fun buildChatSystemPrompt(taskContext: String): String {
+        val basePrompt = """
+            あなたはタスク管理アプリ「TaskScheduler」のAIアシスタントです。
+            ユーザーの予定管理を手伝ってください。
+            
+            【重要ルール】
+            - ユーザーが予定について質問した場合は、以下の登録済み予定を参照して正確に回答してください
+            - 「予定を登録」と言われたら予定登録の手続きに進んでください
+            - 回答は簡潔で親しみやすい日本語にしてください
+            - Markdown記法は使わず、箇条書きは「・」を使ってください
+            
+            今日の日付: ${LocalDate.now()}
+        """.trimIndent()
+
+        return if (taskContext.isNotEmpty()) {
+            "$basePrompt\n\n【登録済み予定データ】\n$taskContext"
+        } else {
+            "$basePrompt\n\n現在登録されている予定はありません。"
+        }
+    }
+
+    /**
+     * 予定照会インテントのデータクラス
+     */
+    private data class ScheduleQueryIntent(
+        val fromDate: LocalDate,
+        val toDate: LocalDate,
+        val label: String
+    )
 }
