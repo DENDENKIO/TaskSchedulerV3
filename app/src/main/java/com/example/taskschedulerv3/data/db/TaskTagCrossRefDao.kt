@@ -30,4 +30,13 @@ interface TaskTagCrossRefDao {
         WHERE task_tag_cross_ref.tagId IN (:tagIds) AND tasks.isDeleted = 0
     """)
     fun getTasksByTagIds(tagIds: List<Int>): Flow<List<Task>>
+
+    // AIチャット用: タグIDでタスクを取得（同期）
+    @Query("""
+        SELECT DISTINCT tasks.* FROM tasks
+        INNER JOIN task_tag_cross_ref ON tasks.id = task_tag_cross_ref.taskId
+        WHERE task_tag_cross_ref.tagId IN (:tagIds) AND tasks.isDeleted = 0
+        ORDER BY tasks.startDate ASC
+    """)
+    suspend fun getTasksByTagIdsSync(tagIds: List<Int>): List<Task>
 }

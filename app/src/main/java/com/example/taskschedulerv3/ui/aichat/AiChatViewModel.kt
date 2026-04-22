@@ -61,6 +61,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         addAiMessage(ChatContent.Text(
             "こんにちは！AIアシスタントです。\n" +
             "・「明日の予定は？」「今週の予定を教えて」などで登録済みの予定を確認できます\n" +
+            "・「仕事関連の予定」「歯医者の予定は？」などで関連する予定を検索できます\n" +
             "・「予定を登録」と入力すると、自然な文章から予定を作成できます"
         ))
         viewModelScope.launch {
@@ -437,15 +438,21 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
      * 該当する場合はDBからタスクを取得してAI応答に組み込む。
      */
     private suspend fun handleNormalChat(text: String) {
-        // 1. 予定照会インテント判定
-        val queryIntent = detectScheduleQueryIntent(text)
-
-        if (queryIntent != null) {
-            handleScheduleQuery(queryIntent, text)
+        // 1. 日付ベースの予定照会インテント判定
+        val dateIntent = detectScheduleQueryIntent(text)
+        if (dateIntent != null) {
+            handleScheduleQuery(dateIntent, text)
             return
         }
 
-        // 2. 通常の会話（予定照会でない場合）
+        // 2. トピック/キーワードベースの予定検索インテント判定
+        val topicKeyword = detectTopicQueryIntent(text)
+        if (topicKeyword != null) {
+            handleTopicQuery(topicKeyword, text)
+            return
+        }
+
+        // 3. 通常の会話（予定照会でない場合）
         //    ユーザーが予定に関する漠然とした質問をしている場合にも対応するため、
         //    直近の予定をコンテキストとして渡す
         val upcomingTasks = withContext(Dispatchers.IO) {
@@ -553,10 +560,19 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     } catch (e: Exception) { null }
                 } else null
             }
-            // キーワードが一致しているが日付指定がない → 直近全体
-            hasQueryKeyword -> ScheduleQueryIntent(
-                fromDate = today, toDate = today.plusDays(7), label = "今後1週間"
-            )
+            // キーワードが一致しているが日付指定がない →
+            // トピック修飾語（「〇〇の予定」「〇〇関連」）がある場合はトピック検索に委譲
+            hasQueryKeyword -> {
+                val topicModifiers = listOf("関連", "に関する", "について", "に関して", "の予定", "のスケジュール", "のタスク")
+                val hasTopicModifier = topicModifiers.any { text.contains(it) }
+                if (hasTopicModifier) {
+                    null  // トピック検索（detectTopicQueryIntent）に処理を委譲
+                } else {
+                    ScheduleQueryIntent(
+                        fromDate = today, toDate = today.plusDays(7), label = "今後1週間"
+                    )
+                }
+            }
             else -> null
         }
     }
@@ -683,6 +699,121 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             "$basePrompt\n\n現在登録されている予定はありません。"
         }
     }
+
+    // ── トピック/キーワード検索機能 ──────────────────────────────
+
+    /**
+     * ユーザーの自然文から「〇〇関連の予定」「〇〇の予定は？」のような
+     * トピック/キーワード検索の意図を検出し、検索キーワードを返す。
+     * 該当しない場合はnullを返す。
+     */
+    private fun detectTopicQueryIntent(text: String): String? {
+        // 「予定を登録」は除外
+        if (isRegistrationIntent(text)) return null
+
+        // トピック照会パターン（「〇〇関連」「〇〇の予定」「〇〇について」等）
+        val topicPatterns = listOf(
+            Regex("(.+?)関連の?(予定|スケジュール|タスク|用事)"),
+            Regex("(.+?)(?:の|に関する)(予定|スケジュール|タスク|用事)"),
+            Regex("(.+?)(?:について|に関して).*(?:予定|スケジュール|タスク|教えて|ある)"),
+            Regex("(.+?)(?:の|って).*(?:ある|ありますか|教えて|見せて|確認)"),
+            Regex("(.+?)(?:関連|関係).*(?:教えて|ある|確認|見せて)"),
+        )
+
+        for (pattern in topicPatterns) {
+            val match = pattern.find(text)
+            if (match != null) {
+                val keyword = match.groupValues[1].trim()
+                // 日付キーワードは日付照会で処理済みなので除外
+                val dateKeywords = listOf(
+                    "今日", "明日", "明後日", "あさって", "今週", "来週",
+                    "今月", "来月", "昨日"
+                )
+                if (dateKeywords.any { keyword.contains(it) }) return null
+                // 短すぎるキーワードは誤検出防止で除外
+                if (keyword.length >= 1) return keyword
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * トピック/キーワードベースの予定検索を処理する。
+     * タスクのタイトル・メモ・場所に対するテキスト検索と、
+     * タグ名に対する検索を統合して結果を返す。
+     */
+    private suspend fun handleTopicQuery(keyword: String, originalText: String) {
+        // 1. タスクのタイトル・メモ・場所からキーワード検索
+        val textMatchedTasks = withContext(Dispatchers.IO) {
+            taskDao.searchTasksSync(keyword)
+        }
+
+        // 2. タグ名からキーワード検索 → 該当タグに紐づくタスクを取得
+        val tagMatchedTasks = withContext(Dispatchers.IO) {
+            val matchedTags = tagDao.searchByNameSync(keyword)
+            if (matchedTags.isNotEmpty()) {
+                val tagIds = matchedTags.map { it.id }
+                crossRefDao.getTasksByTagIdsSync(tagIds)
+            } else {
+                emptyList()
+            }
+        }
+
+        // 3. 結果を統合（重複除去）
+        val allTasks = (textMatchedTasks + tagMatchedTasks)
+            .distinctBy { it.id }
+            .sortedBy { it.startDate }
+
+        if (allTasks.isEmpty()) {
+            addAiMessage(ChatContent.Text(
+                "「${keyword}」に関連する予定は見つかりませんでした。"
+            ))
+            return
+        }
+
+        // AIエンジンが使える場合は自然文で応答
+        if (AiEngineManager.isLoaded()) {
+            val taskListStr = formatTasksForAi(allTasks)
+            val systemPrompt = """
+                あなたはタスク管理アプリ「TaskScheduler」のAIアシスタントです。
+                ユーザーが「${keyword}」に関連する予定について質問しています。
+                以下の検索結果を参照して質問に答えてください。
+                
+                【重要ルール】
+                - 以下の予定データはユーザーが登録した予定のうち「${keyword}」に関連するものです
+                - 予定がある場合は具体的にタイトル・日付・時刻・場所を含めて回答してください
+                - 該当件数を伝えてください
+                - 回答は簡潔で親しみやすい日本語にしてください
+                - Markdown記法は使わず、箇条書きは「・」を使ってください
+                
+                【「${keyword}」関連の予定データ】
+                $taskListStr
+                
+                今日の日付: ${LocalDate.now()}
+            """.trimIndent()
+
+            val resp = withContext(Dispatchers.IO) {
+                AiEngineManager.generateChatResponse(originalText, systemPrompt)
+            }
+            addAiMessage(ChatContent.Text(
+                resp ?: formatTopicFallbackResponse(keyword, allTasks)
+            ))
+        } else {
+            // AIエンジンが使えない場合はフォーマットして直接表示
+            addAiMessage(ChatContent.Text(formatTopicFallbackResponse(keyword, allTasks)))
+        }
+    }
+
+    /**
+     * トピック検索でAIが使えない場合のフォールバック応答
+     */
+    private fun formatTopicFallbackResponse(keyword: String, tasks: List<Task>): String {
+        val header = "「${keyword}」に関連する予定は${tasks.size}件です：\n"
+        return header + formatTasksReadable(tasks)
+    }
+
+    // ── データクラス ──────────────────────────────────────────
 
     /**
      * 予定照会インテントのデータクラス

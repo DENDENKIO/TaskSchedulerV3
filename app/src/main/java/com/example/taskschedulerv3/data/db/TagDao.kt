@@ -30,4 +30,12 @@ interface TagDao {
     // フィルタ用 ソート済み全件
     @Query("SELECT * FROM tags ORDER BY sortOrder ASC, name ASC")
     fun getAllForFilter(): Flow<List<Tag>>
+
+    // AIチャット用: タグ名でキーワード検索（同期）
+    @Query("SELECT * FROM tags WHERE name LIKE '%' || :keyword || '%'")
+    suspend fun searchByNameSync(keyword: String): List<Tag>
+
+    // AIチャット用: 全タグ取得（同期）
+    @Query("SELECT * FROM tags ORDER BY sortOrder ASC")
+    suspend fun getAllSync(): List<Tag>
 }
