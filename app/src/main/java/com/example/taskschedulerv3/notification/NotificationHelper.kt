@@ -105,4 +105,56 @@ object NotificationHelper {
             .build()
         manager.notify(DRAFT_BATCH_NOTIFICATION_ID, notification)
     }
+
+    // ── 写真メモまとめ通知 ──────────────────────────────────
+
+    private const val MEMO_CHANNEL_ID = "memo_summary"
+    private const val MEMO_CHANNEL_NAME = "写真メモまとめ"
+    private const val MEMO_SUMMARY_NOTIFICATION_ID = 99998
+
+    /**
+     * 写真メモまとめ処理完了時の通知。
+     * @param count 成功件数。-1 ならエラー通知。
+     */
+    fun showMemoSummaryComplete(context: Context, count: Int) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+
+        // チャンネル作成
+        val channel = NotificationChannel(
+            MEMO_CHANNEL_ID, MEMO_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply { description = "写真メモのAIまとめ処理完了通知" }
+        manager.createNotificationChannel(channel)
+
+        val title: String
+        val body: String
+        if (count >= 0) {
+            title = "写真メモまとめ完了"
+            body = "${count}件の予定のメモに写真メモのまとめを追記しました。"
+        } else {
+            title = "写真メモまとめエラー"
+            body = "処理中にエラーが発生しました。もう一度お試しください。"
+        }
+
+        // タップで MainActivity を開く
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, MEMO_SUMMARY_NOTIFICATION_ID, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, MEMO_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        manager.notify(MEMO_SUMMARY_NOTIFICATION_ID, notification)
+    }
 }

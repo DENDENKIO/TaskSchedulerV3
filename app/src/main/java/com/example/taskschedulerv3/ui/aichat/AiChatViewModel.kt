@@ -28,12 +28,18 @@ import java.time.format.DateTimeFormatter
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.temporal.TemporalAdjusters
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import com.example.taskschedulerv3.notification.NotificationHelper
 
 class AiChatViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "AiChatVM"
     }
+
+    // ★ 画面を閉じてもキャンセルされないスコープ
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val db = AppDatabase.getInstance(application)
     private val taskDao = db.taskDao()
@@ -842,7 +848,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun handlePhotoMemoSummary(text: String) {
         val photoMemoDao = db.photoMemoDao()
 
-        // ★追加: AIエンジンがロードされていなければロードを試みる
+        // AIエンジンがロードされていなければロードを試みる
         if (!AiEngineManager.isLoaded()) {
             val isAiEnabled = AiPreferences.getAiEnabled(getApplication()).first()
             if (isAiEnabled) {
@@ -853,17 +859,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        // 全タスク（未完了+完了）を対象にする
-        val allTasksList = withContext(Dispatchers.IO) {
+        // ★ 未完了タスクのみを対象（完了済みは除外）
+        val targetTasks = withContext(Dispatchers.IO) {
             taskDao.getUpcomingTasks(500)
         }
-        val completedTasks = withContext(Dispatchers.IO) {
-            taskDao.getCompletedTasksSync()
-        }
-        val targetTasks = (allTasksList + completedTasks).distinctBy { it.id }
+        val uncompletedTasks = targetTasks.filter { !it.isCompleted }
 
-        if (targetTasks.isEmpty()) {
-            addAiMessage(ChatContent.Text("対象となる予定が見つかりませんでした。"))
+        if (uncompletedTasks.isEmpty()) {
+            addAiMessage(ChatContent.Text("対象となる未完了の予定が見つかりませんでした。"))
             return
         }
 
@@ -871,7 +874,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         data class TaskMemoBundle(val task: Task, val memoTexts: List<String>)
 
         val bundles = withContext(Dispatchers.IO) {
-            targetTasks.mapNotNull { task ->
+            uncompletedTasks.mapNotNull { task ->
                 val photoMemos = photoMemoDao.getMemosForTaskSync(task.id)
                 if (photoMemos.isEmpty()) return@mapNotNull null
 
@@ -887,31 +890,65 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         if (bundles.isEmpty()) {
-            addAiMessage(ChatContent.Text("写真メモ（テキスト）が登録されている予定が見つかりませんでした。"))
+            addAiMessage(ChatContent.Text("写真メモ（テキスト）が登録されている未完了の予定が見つかりませんでした。"))
             return
         }
 
         val aiAvailable = AiEngineManager.isLoaded()
         val modeLabel = if (aiAvailable) "AIでまとめます" else "テキスト結合でまとめます"
-        addAiMessage(ChatContent.Text("${bundles.size}件の予定から写真メモを${modeLabel}..."))
 
-        var successCount = 0
-        for (bundle in bundles) {
-            val combinedText = bundle.memoTexts.joinToString("\n")
-            val summary = summarizeMemoTexts(bundle.task.title, combinedText)
+        // ★ ユーザーへバックグラウンド処理の案内
+        addAiMessage(ChatContent.Text(
+            "${bundles.size}件の予定から写真メモを${modeLabel}。\n" +
+            "画面を閉じても処理は継続します。完了後に通知でお知らせします。"
+        ))
 
-            if (summary.isNotBlank()) {
-                val appendText = "【写真メモまとめ】\n$summary"
-                withContext(Dispatchers.IO) {
-                    taskDao.appendDescription(bundle.task.id, appendText, System.currentTimeMillis())
+        // ★ appScope で起動 → viewModelScope ではないので画面を閉じても中断しない
+        val context = getApplication<Application>()
+        appScope.launch {
+            try {
+                var successCount = 0
+                for (bundle in bundles) {
+                    val combinedText = bundle.memoTexts.joinToString("\n")
+
+                    // 重複追記防止: 既存 description に「【写真メモまとめ】」+ 同じ冒頭があればスキップ
+                    val currentDesc = bundle.task.description ?: ""
+                    val previewKey = combinedText.take(40)
+                    if (currentDesc.contains("【写真メモまとめ】") && currentDesc.contains(previewKey)) {
+                        continue
+                    }
+
+                    val summary = summarizeMemoTexts(bundle.task.title, combinedText)
+
+                    if (summary.isNotBlank()) {
+                        val appendText = "【写真メモまとめ】\n$summary"
+                        withContext(Dispatchers.IO) {
+                            taskDao.appendDescription(bundle.task.id, appendText, System.currentTimeMillis())
+                        }
+                        successCount++
+                    }
                 }
-                successCount++
+
+                // 処理完了 → チャットにメッセージ追加（画面が開いていれば表示される）
+                withContext(Dispatchers.Main) {
+                    addAiMessage(ChatContent.Text(
+                        "写真メモまとめ完了！${successCount}件の予定のメモに追記しました。"
+                    ))
+                }
+
+                // ★ 端末通知を送信（画面を閉じていても届く）
+                NotificationHelper.showMemoSummaryComplete(context, successCount)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "写真メモまとめ処理エラー", e)
+                withContext(Dispatchers.Main) {
+                    addAiMessage(ChatContent.Text(
+                        "写真メモまとめ処理中にエラーが発生しました: ${e.message}"
+                    ))
+                }
+                NotificationHelper.showMemoSummaryComplete(context, -1)
             }
         }
-
-        addAiMessage(ChatContent.Text(
-            "完了！${successCount}件の予定のメモに写真メモのまとめを追記しました。"
-        ))
     }
 
     /**
