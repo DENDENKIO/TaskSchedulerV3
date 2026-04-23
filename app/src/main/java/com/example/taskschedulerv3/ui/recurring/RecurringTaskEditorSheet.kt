@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.ExperimentalMaterial3Api
+import kotlinx.coroutines.launch
 
 /**
  * 繰り返し予定の追加・編集シート (第7弾)
@@ -32,7 +33,6 @@ fun RecurringTaskEditorSheet(
     onSave: (title: String, startDate: String, pattern: String, days: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var showCloseConfirmation by remember { mutableStateOf(false) }
     var sheetHeight by remember { mutableFloatStateOf(0f) }
     var title by remember { mutableStateOf(initialTitle) }
     var startDate by remember { mutableStateOf(initialStartDate) }
@@ -56,18 +56,16 @@ fun RecurringTaskEditorSheet(
         }
     }
 
+    var forceClose by remember { mutableStateOf(false) }
     val sheetStateRef = remember { mutableStateOf<SheetState?>(null) }
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
         confirmValueChange = { newValue ->
-            if (newValue == SheetValue.Hidden) {
+            if (newValue == SheetValue.Hidden && !forceClose) {
+                // シート高さの50%以上ドラッグしないと閉じないようにする
                 val currentOffset = sheetStateRef.value?.requireOffset() ?: 0f
-                val threshold = sheetHeight * 0.8f
-                
-                if (currentOffset > threshold) {
-                    showCloseConfirmation = true
-                }
-                false
+                val threshold = sheetHeight * 0.5f
+                currentOffset > threshold
             } else {
                 true
             }
@@ -75,24 +73,13 @@ fun RecurringTaskEditorSheet(
     )
     SideEffect { sheetStateRef.value = sheetState }
 
-    // 破棄確認ダイアログ
-    if (showCloseConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showCloseConfirmation = false },
-            title = { Text("情報の破棄") },
-            text = { Text("入力中の繰り返し設定を破棄して閉じますか？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showCloseConfirmation = false
-                        onDismiss()
-                    }
-                ) { Text("破棄", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCloseConfirmation = false }) { Text("キャンセル") }
-            }
-        )
+    val scope = rememberCoroutineScope()
+    fun closeSheetSafely() {
+        scope.launch {
+            forceClose = true
+            try { sheetState.hide() } catch (_: Exception) {}
+            finally { onDismiss() }
+        }
     }
 
     // 日付選択ダイアログ
@@ -122,8 +109,7 @@ fun RecurringTaskEditorSheet(
 
     ModalBottomSheet(
         onDismissRequest = {
-            // スワイプ時にすぐに閉じずダイアログを出す
-            showCloseConfirmation = true
+            closeSheetSafely()
         },
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface
@@ -252,7 +238,7 @@ fun RecurringTaskEditorSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = { closeSheetSafely() }, modifier = Modifier.weight(1f)) {
                     Text("キャンセル")
                 }
                 Button(

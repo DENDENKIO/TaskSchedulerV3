@@ -89,14 +89,28 @@ fun AddTaskBottomSheet(
     // シートを安全に閉じるための仕組み
     // ==========================================
     val scope = rememberCoroutineScope()
+    var forceClose by remember { mutableStateOf(false) }
 
+    val sheetStateRef = remember { mutableStateOf<SheetState?>(null) }
     val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true
+        skipPartiallyExpanded = true,
+        confirmValueChange = { newValue ->
+            if (newValue == SheetValue.Hidden && !forceClose) {
+                // シート高さの50%以上ドラッグしないと閉じないようにする
+                val currentOffset = sheetStateRef.value?.requireOffset() ?: 0f
+                val threshold = sheetHeight * 0.5f
+                currentOffset > threshold
+            } else {
+                true
+            }
+        }
     )
+    SideEffect { sheetStateRef.value = sheetState }
 
     // アニメーションを完了させてから安全に破棄する関数
     fun closeSheetSafely() {
         scope.launch {
+            forceClose = true
             try {
                 sheetState.hide()
             } catch (e: Exception) {

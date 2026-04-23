@@ -155,16 +155,20 @@ fun QuickDraftCaptureSheet(
 
     // ─── シート状態管理 ───
     var forceClose by remember { mutableStateOf(false) }
+    val draftSheetStateRef = remember { mutableStateOf<SheetState?>(null) }
     val draftSheetState = rememberModalBottomSheetState(
         confirmValueChange = { newValue ->
             if (newValue == SheetValue.Hidden && !forceClose) {
-                // 写真がある場合は確認
-                capturedPaths.isEmpty()
+                // シート高さの50%以上ドラッグしないと閉じないようにする
+                val currentOffset = draftSheetStateRef.value?.requireOffset() ?: 0f
+                val threshold = sheetHeight * 0.5f
+                currentOffset > threshold
             } else {
                 true
             }
         }
     )
+    SideEffect { draftSheetStateRef.value = draftSheetState }
 
     fun closeSheetSafely() {
         scope.launch {
