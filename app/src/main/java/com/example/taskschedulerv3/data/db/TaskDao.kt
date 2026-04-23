@@ -98,4 +98,8 @@ interface TaskDao {
     // ★追加: AI要約追記用
     @Query("UPDATE tasks SET description = CASE WHEN description IS NULL OR description = '' THEN :text ELSE description || '\n\n' || :text END, updatedAt = :updatedAt WHERE id = :id")
     suspend fun appendDescription(id: Int, text: String, updatedAt: Long)
+
+    // AI写真メモ要約用: 完了タスクを同期取得
+    @Query("SELECT * FROM tasks WHERE isCompleted = 1 AND isDeleted = 0 ORDER BY updatedAt DESC")
+    suspend fun getCompletedTasksSync(): List<Task>
 }

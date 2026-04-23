@@ -59,10 +59,12 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         addAiMessage(ChatContent.Text(
-            "こんにちは！AIアシスタントです。\n" +
-            "・「明日の予定は？」「今週の予定を教えて」などで登録済みの予定を確認できます\n" +
-            "・「仕事関連の予定」「歯医者の予定は？」などで関連する予定を検索できます\n" +
-            "・「予定を登録」と入力すると、自然な文章から予定を作成できます"
+            "こんにちは！AIアシスタントです。\n\n" +
+            "【使える機能】\n" +
+            "・予定の確認：「明日の予定は？」「今週の予定を教えて」\n" +
+            "・予定の検索：「仕事関連の予定」「歯医者の予定は？」\n" +
+            "・予定の登録：「予定を登録」と入力\n" +
+            "・写真メモ要約：「写真メモを要約」と入力すると、写真メモの内容をAIで要約して予定のメモに追記します"
         ))
         viewModelScope.launch {
             tagDao.getAll().collect { _allTags.value = it }
@@ -829,57 +831,104 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     // ── 写真メモ要約機能 ──────────────────────────────────────────
 
     private fun isPhotoMemoSummaryIntent(text: String): Boolean {
-        return text.contains("写真メモ") && (text.contains("要約") || text.contains("まとめ"))
+        val keywords = listOf(
+            "写真メモを要約", "写真メモ要約", "写真メモをまとめ",
+            "カメラメモを要約", "カメラメモ要約", "カメラメモをまとめ",
+            "メモを要約", "メモ要約", "OCR要約", "写真の要約",
+            "写真まとめ", "メモまとめ"
+        )
+        return keywords.any { text.contains(it) }
     }
 
     private suspend fun handlePhotoMemoSummary(text: String) {
-        // 直近のタスクを取得（本当は特定タスクの指定が必要だが、ここでは「最新のタスク」か「検索」を想定）
-        val tasks = withContext(Dispatchers.IO) {
-            taskDao.getUpcomingTasks(5) // 直近5件から選ばせるか、最新のものを対象にする
-        }
+        val photoMemoDao = db.photoMemoDao()
 
-        if (tasks.isEmpty()) {
+        // 全タスク（未完了+完了+削除されていないもの）を対象にする
+        val allTasksList = withContext(Dispatchers.IO) {
+            taskDao.getUpcomingTasks(500) // 未完了
+        }
+        // 完了タスクも対象にしたいので別途取得
+        val completedTasks = withContext(Dispatchers.IO) {
+            taskDao.getCompletedTasksSync()
+        }
+        val targetTasks = (allTasksList + completedTasks).distinctBy { it.id }
+
+        if (targetTasks.isEmpty()) {
             addAiMessage(ChatContent.Text("要約対象となる予定が見つかりませんでした。"))
             return
         }
 
-        val targetTask = tasks.first() // 簡易的に最新の1件を対象とする
-        val memos = withContext(Dispatchers.IO) {
-            db.photoMemoDao().getMemosForTaskSync(targetTask.id)
+        // 各タスクの写真メモを収集（memo と ocrText の両方を見る）
+        data class TaskMemoBundle(val task: Task, val memoTexts: List<String>)
+
+        val bundles = withContext(Dispatchers.IO) {
+            targetTasks.mapNotNull { task ->
+                val photoMemos = photoMemoDao.getMemosForTaskSync(task.id)
+                if (photoMemos.isEmpty()) return@mapNotNull null
+
+                // memo フィールドと ocrText フィールドの両方からテキストを収集
+                val texts = photoMemos.flatMap { photo ->
+                    listOfNotNull(
+                        photo.memo?.takeIf { it.isNotBlank() },
+                        photo.ocrText?.takeIf { it.isNotBlank() }
+                    )
+                }.distinct()
+
+                if (texts.isNotEmpty()) TaskMemoBundle(task, texts) else null
+            }
         }
 
-        val ocrTexts = memos.mapNotNull { it.ocrText }.filter { it.isNotBlank() }
-        if (ocrTexts.isEmpty()) {
-            addAiMessage(ChatContent.Text("『${targetTask.title}』に関連する写真メモ（OCRテキスト）が見つかりませんでした。"))
+        if (bundles.isEmpty()) {
+            addAiMessage(ChatContent.Text("写真メモ（テキスト）が登録されている予定が見つかりませんでした。"))
             return
         }
 
-        addAiMessage(ChatContent.Text("『${targetTask.title}』の写真メモを要約中..."))
-        
-        val summary = summarizeMemos(ocrTexts)
-        if (summary != null) {
-            withContext(Dispatchers.IO) {
-                taskDao.appendDescription(targetTask.id, "【写真メモ要約】\n$summary", System.currentTimeMillis())
+        addAiMessage(ChatContent.Text("${bundles.size}件の予定から写真メモを要約します..."))
+
+        var successCount = 0
+        for (bundle in bundles) {
+            val combinedText = bundle.memoTexts.joinToString("\n")
+            val summary = summarizeMemoTexts(bundle.task.title, combinedText)
+
+            if (summary.isNotBlank()) {
+                val appendText = "【写真メモ要約】\n$summary"
+                withContext(Dispatchers.IO) {
+                    taskDao.appendDescription(bundle.task.id, appendText, System.currentTimeMillis())
+                }
+                successCount++
             }
-            addAiMessage(ChatContent.Text("要約が完了し、予定のメモ欄に追記しました：\n\n$summary"))
-        } else {
-            addAiMessage(ChatContent.Text("要約に失敗しました。"))
         }
+
+        addAiMessage(ChatContent.Text(
+            "完了！${successCount}件の予定のメモに写真メモの要約を追記しました。"
+        ))
     }
 
-    private suspend fun summarizeMemos(texts: List<String>): String? {
-        if (!AiEngineManager.isLoaded()) return null
-        val combined = texts.joinToString("\n---\n")
-        val prompt = """
-            以下の複数のテキスト（写真から抽出されたOCRテキスト）を統合し、重要な情報を箇条書きで簡潔に要約してください。
-            重複する情報はまとめ、日付・時刻・場所・持ち物・注意事項などを整理してください。
-            
-            テキスト群:
-            $combined
-        """.trimIndent()
+    /**
+     * メモテキストをAIで要約する。AI未ロード時はフォールバック（箇条書き結合）。
+     */
+    private suspend fun summarizeMemoTexts(taskTitle: String, memoText: String): String {
+        // AIエンジンが使えるならAI要約
+        if (AiEngineManager.isLoaded()) {
+            val prompt = """
+                以下は予定「${taskTitle}」に添付された写真メモの内容です。
+                重要な情報を箇条書きで簡潔に要約してください。Markdown記法は使わず、
+                箇条書きは「・」を使ってください。Markdown記法は使わないでください。
 
-        return withContext(Dispatchers.IO) {
-            AiEngineManager.generateResponse(prompt)
+                写真メモ:
+                $memoText
+            """.trimIndent()
+
+            val response = withContext(Dispatchers.IO) {
+                AiEngineManager.generateResponse(prompt)
+            }
+            if (!response.isNullOrBlank()) return response.trim()
+        }
+
+        // フォールバック: AI未使用時は各行の先頭を連結
+        val lines = memoText.lines().filter { it.isNotBlank() }
+        return lines.joinToString("\n") { line ->
+            "・${line.take(80)}${if (line.length > 80) "…" else ""}"
         }
     }
 }
