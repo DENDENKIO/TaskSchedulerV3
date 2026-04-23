@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -155,20 +156,39 @@ fun QuickDraftCaptureSheet(
 
     // ─── シート状態管理 ───
     var forceClose by remember { mutableStateOf(false) }
+    val capturedPathsRef = remember { mutableStateOf(listOf<String>()) }
+    capturedPathsRef.value = capturedPaths
     val draftSheetStateRef = remember { mutableStateOf<SheetState?>(null) }
     val draftSheetState = rememberModalBottomSheetState(
         confirmValueChange = { newValue ->
             if (newValue == SheetValue.Hidden && !forceClose) {
-                // シート高さの50%以上ドラッグしないと閉じないようにする
-                val currentOffset = draftSheetStateRef.value?.requireOffset() ?: 0f
-                val threshold = sheetHeight * 0.5f
-                currentOffset > threshold
+                // 写真がある場合のみ閉じるのを制限する（50%以上ドラッグで閉じる）
+                // 写真がない場合は自由に閉じられるようにする
+                if (capturedPathsRef.value.isEmpty()) {
+                    true
+                } else {
+                    val currentOffset = try {
+                        draftSheetStateRef.value?.requireOffset() ?: 0f
+                    } catch (_: Exception) { Float.MAX_VALUE }
+                    val threshold = sheetHeight * 0.5f
+                    currentOffset > threshold
+                }
             } else {
                 true
             }
         }
     )
     SideEffect { draftSheetStateRef.value = draftSheetState }
+
+    // シートが非表示アニメーション完了を検知してonDismissを呼ぶ
+    LaunchedEffect(draftSheetState) {
+        snapshotFlow { draftSheetState.isVisible }
+            .collect { visible ->
+                if (!visible && forceClose) {
+                    onDismiss()
+                }
+            }
+    }
 
     fun closeSheetSafely() {
         scope.launch {
@@ -211,10 +231,10 @@ fun QuickDraftCaptureSheet(
 
     ModalBottomSheet(
         onDismissRequest = {
-            if (capturedPaths.isEmpty()) {
-                closeSheetSafely()
-            }
-            // 写真がある場合はconfirmValueChangeで制御
+            // onDismissRequestはスクリムタップ or バックボタンで呼ばれる。
+            // confirmValueChangeでfalseを返した場合はここに来ないので、
+            // ここに来た時点で閉じてよいケース。安全にシートを閉じる。
+            closeSheetSafely()
         },
         sheetState = draftSheetState,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
