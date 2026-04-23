@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow          // ★追加
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -85,18 +86,17 @@ fun AddTaskBottomSheet(
     val isOcrProcessing by photoVm.isProcessing.collectAsState()
 
     // ==========================================
-    // 修正：シートを安全に閉じるための仕組み（アニメーションを待ってから消す）
+    // シートを安全に閉じるための仕組み
     // ==========================================
     val scope = rememberCoroutineScope()
     var forceClose by remember { mutableStateOf(false) }
 
+    // ★変更: confirmValueChange では Hidden 遷移を常にブロックするだけにする
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
         confirmValueChange = { newValue ->
             if (newValue == SheetValue.Hidden && !forceClose) {
-                // スワイプや外側タップで閉じようとしたら一旦ブロックして確認ダイアログを出す
-                showCloseConfirmation = true
-                false 
+                false
             } else {
                 true
             }
@@ -131,12 +131,28 @@ fun AddTaskBottomSheet(
         }
     }
 
+    // ★追加: シートのオフセットを監視し、60%以上下げたときだけ破棄確認ダイアログを表示
+    LaunchedEffect(sheetState) {
+        snapshotFlow {
+            try {
+                sheetState.requireOffset()
+            } catch (e: Exception) {
+                0f
+            }
+        }.collect { offset ->
+            if (sheetHeight > 0f && offset >= sheetHeight * 0.6f && !forceClose && !showCloseConfirmation) {
+                showCloseConfirmation = true
+                scope.launch { sheetState.show() }
+            }
+        }
+    }
+
     // 破棄確認ダイアログ
     if (showCloseConfirmation) {
         AlertDialog(
             onDismissRequest = { 
                 showCloseConfirmation = false 
-                scope.launch { sheetState.show() } // 状態リセット
+                scope.launch { sheetState.show() }
             },
             title = { Text("内容の破棄") },
             text = { Text("入力中の内容は保存されません。破棄して閉じますか？") },
@@ -151,7 +167,7 @@ fun AddTaskBottomSheet(
             dismissButton = {
                 TextButton(onClick = { 
                     showCloseConfirmation = false 
-                    scope.launch { sheetState.show() } // 状態リセット
+                    scope.launch { sheetState.show() }
                 }) { Text("キャンセル") }
             }
         )
@@ -362,7 +378,7 @@ fun AddTaskBottomSheet(
                             ScheduleType.NORMAL -> "通常"
                             ScheduleType.RECURRING -> "繰り返し"
                             ScheduleType.PERIOD -> "期間"
-                            else -> "" // ROADMAP is filtered out
+                            else -> ""
                         }
                         FilterChip(
                             selected = scheduleType == type,
@@ -373,11 +389,7 @@ fun AddTaskBottomSheet(
                                 }
                             },
                             label = { 
-                                Text(
-                                    label, 
-                                    modifier = Modifier.fillMaxWidth(),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                ) 
+                                Text(label, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) 
                             },
                             modifier = Modifier.weight(1f)
                         )
@@ -386,14 +398,12 @@ fun AddTaskBottomSheet(
             }
 
             if (scheduleType == ScheduleType.RECURRING) {
-                // 繰り返し設定セクション
                 Column(
                     modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text("繰り返し設定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     
-                    // パターン選択
                     val patterns: List<Pair<RecurrencePattern, String>> = listOf(
                         RecurrencePattern.DAILY to "毎日",
                         RecurrencePattern.EVERY_N_DAYS to "N日ごと",
@@ -463,7 +473,6 @@ fun AddTaskBottomSheet(
                         else -> { /* DAILY etc */ }
                     }
 
-                    // 終了期限（任意）
                     OutlinedButton(
                         onClick = { 
                             isPickingRecurrenceEnd = true
@@ -475,7 +484,6 @@ fun AddTaskBottomSheet(
                     }
                 }
             } else if (scheduleType == ScheduleType.PERIOD) {
-                // 期間予定用終了日
                 OutlinedButton(
                     onClick = { 
                         isPickingRecurrenceEnd = false
@@ -487,7 +495,6 @@ fun AddTaskBottomSheet(
                 }
             }
 
-            // 無期限トグル (通常予定または期間予定のときのみ表示。繰り返しには馴染まない)
             if (scheduleType != ScheduleType.RECURRING) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -524,7 +531,6 @@ fun AddTaskBottomSheet(
                     }
                 }
 
-                // 通知設定セクション
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -542,7 +548,6 @@ fun AddTaskBottomSheet(
                             60 to "1時間前",
                             1440 to "1日前"
                         )
-                        // 状態を直接計算して一貫性を保つ
                         val isPreset = presets.any { it.first == notifyMinutesBefore }
                         var forceCustom by remember { mutableStateOf(false) }
                         val currentlyCustom = forceCustom || !isPreset
@@ -588,9 +593,6 @@ fun AddTaskBottomSheet(
                 }
             }
 
-
-
-            // ロードマップトグル (ステップ6)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -603,7 +605,6 @@ fun AddTaskBottomSheet(
                 )
             }
 
-            // 関連予定セクション
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -625,7 +626,7 @@ fun AddTaskBottomSheet(
                     ) {
                         relatedTasks.forEach { t ->
                             AssistChip(
-                                onClick = { /* Navigate to detail? Maybe not helpful here */ },
+                                onClick = { },
                                 label = { Text(t.title, maxLines = 1) },
                                 trailingIcon = {
                                     Icon(
@@ -644,7 +645,7 @@ fun AddTaskBottomSheet(
                 allTags = allTags,
                 selectedTagIds = selectedTagIds,
                 onTagsChanged = { vm.selectedTagIds.value = it },
-                onNavigateToTagManage = { /* 画面遷移はMainActivity等でハンドリング */ }
+                onNavigateToTagManage = { }
             )
 
             if (isOcrProcessing) {
