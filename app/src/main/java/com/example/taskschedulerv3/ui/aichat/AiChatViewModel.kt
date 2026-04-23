@@ -10,10 +10,13 @@ import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.data.model.TaskTagCrossRef
 import com.example.taskschedulerv3.notification.AlarmScheduler
+import com.example.taskschedulerv3.notification.NotificationHelper
 import com.example.taskschedulerv3.util.AiEngineManager
 import com.example.taskschedulerv3.util.AiPreferences
 import com.example.taskschedulerv3.util.OcrTextParser
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,9 +31,6 @@ import java.time.format.DateTimeFormatter
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.temporal.TemporalAdjusters
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import com.example.taskschedulerv3.notification.NotificationHelper
 
 class AiChatViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -38,13 +38,13 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         private const val TAG = "AiChatVM"
     }
 
-    // ★ 画面を閉じてもキャンセルされないスコープ
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     private val db = AppDatabase.getInstance(application)
     private val taskDao = db.taskDao()
     private val crossRefDao = db.taskTagCrossRefDao()
     private val tagDao = db.tagDao()
+
+    // ★追加: 画面を閉じてもキャンセルされないスコープ
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var missingQuestionCount = 0
 
@@ -100,10 +100,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
         when (step) {
             WizardStep.IDLE -> {
-                if (isRegistrationIntent(text)) {
-                    startRegistrationFlow(text)
-                } else if (isPhotoMemoSummaryIntent(text)) {     // ★追加
+                // ★写真メモまとめを最優先で判定（他のインテントに横取りされないように）
+                if (isPhotoMemoSummaryIntent(text)) {
                     handlePhotoMemoSummary(text)
+                } else if (isRegistrationIntent(text)) {
+                    startRegistrationFlow(text)
                 } else {
                     handleNormalChat(text)
                 }
@@ -112,11 +113,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 startRegistrationFlow(text)
             }
             WizardStep.WAITING_ANSWER -> {
-                // AIが必要な情報を質問した後の回答
                 refineTaskWithAi(text)
             }
             WizardStep.WAITING_MODIFY -> {
-                // 確認カード表示中の修正指示
                 refineTaskWithAi(text)
             }
             WizardStep.CONFIRM -> {
@@ -149,11 +148,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun parseTaskWithAi(text: String) {
-        // AIエンジンがロードされていなければロードを試みる
         if (!AiEngineManager.isLoaded()) {
             val isAiEnabled = AiPreferences.getAiEnabled(getApplication()).first()
             if (isAiEnabled) {
-                // 初回ロードは数秒〜十数秒かかるため、ユーザーにメッセージを表示
                 addAiMessage(ChatContent.Text("AIモデルを準備しています...少しお待ちください。"))
                 withContext(Dispatchers.IO) {
                     AiEngineManager.loadEngine(getApplication())
@@ -161,7 +158,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        // それでもロードできなかった場合（設定でOFFになっている等）はフォールバック
         if (!AiEngineManager.isLoaded()) {
             addAiMessage(ChatContent.Text("AIエンジンが利用できないため、簡易抽出を試みます。設定でAI機能がONになっているか確認してください。"))
             fallbackRegistration(text)
@@ -170,7 +166,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         
-        // プロンプトのルールを強化し、要約・場所・メモへの振り分けを徹底
         val prompt = """
         ユーザーの自然文から予定情報を抽出し、JSON形式で返してください。
         今日の日付: $today
@@ -216,7 +211,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     } else if (parsed.startDate.isEmpty() && !parsed.isIndefinite) {
                         handleMissingInfo("いつの予定ですか？（日付を教えてください）")
                     } else {
-                        // 自動タグ選択 (AI版)
                         val suggested = suggestTagsWithAi(parsed.title + " " + parsed.memo, _allTags.value)
                         _draft.value = _draft.value.copy(tagIds = suggested)
                         showConfirmation()
@@ -233,15 +227,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun refineTaskWithAi(text: String) {
-        // 現在のドラフトを元にAIに修正を依頼
         val currentDraft = _draft.value
-        val prompt = """
-        現在の予定情報: $currentDraft
-        ユーザーからの修正・追加指示: $text
-        
-        最新の情報を抽出し、再度JSONで返してください。不足があれば回答を促してください。
-        """.trimIndent()
-        // (実装の詳細はparseTaskWithAiと同様なので省略気味に記載されることが多いが、全置換なので完結させる)
         parseTaskWithAi("現在: $currentDraft 指示: $text")
     }
 
@@ -288,7 +274,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         return try {
             val date = LocalDate.parse(startDate)
             val time = if (startTime.isNullOrEmpty()) LocalTime.of(9, 0) else {
-                // HH:mm 形式か HH:mm:ss 形式かを考慮
                 val parts = startTime.split(":")
                 LocalTime.of(parts[0].toInt(), parts[1].toInt())
             }
@@ -309,14 +294,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun showConfirmation() {
-        missingQuestionCount = 0 // すべて揃ったのでリセット
+        missingQuestionCount = 0
         _wizardStep.value = WizardStep.CONFIRM
         addAiMessage(ChatContent.Text("以下の内容でよろしいですか？"))
         addAiMessage(ChatContent.TaskConfirmation(draft = _draft.value, isActive = true))
     }
 
     fun confirmRegistration() {
-        missingQuestionCount = 0 // リセット
+        missingQuestionCount = 0
         viewModelScope.launch {
             _isTyping.value = true
             try {
@@ -335,8 +320,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     fun onPhotoSelected(path: String?) {
         viewModelScope.launch {
             _draft.value = _draft.value.copy(photoPath = path)
-            // 保存済みのタスクに写真を反映
-            // (本来はIDを保持しておく必要があるが、ここでは簡略化)
             addAiMessage(ChatContent.Text("登録が完了しました。ありがとうございます！"))
             _wizardStep.value = WizardStep.COMPLETED
             resetWizard()
@@ -344,7 +327,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cancelRegistration() {
-        missingQuestionCount = 0 // リセット
+        missingQuestionCount = 0
         resetWizard()
         addAiMessage(ChatContent.Text("キャンセルしました。"))
     }
@@ -372,12 +355,10 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         )
         val taskId = taskDao.insert(task).toInt()
 
-        // タグ紐付け
         d.tagIds.forEach { tagId ->
             crossRefDao.insert(TaskTagCrossRef(taskId = taskId, tagId = tagId))
         }
         
-        // 通知登録
         val registered = taskDao.getById(taskId)
         if (registered != null) {
             AlarmScheduler.scheduleForTask(getApplication(), registered)
@@ -391,7 +372,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun parseJsonToDraft(json: String): DraftTaskData {
-        // 本来はGson等を使うが、ここでは簡易パース
         val title = Regex("\"title\"\\s*:\\s*\"([^\"]*)\"").find(json)?.groupValues?.get(1) ?: ""
         val startDate = Regex("\"startDate\"\\s*:\\s*\"([^\"]*)\"").find(json)?.groupValues?.get(1) ?: ""
         val startTime = Regex("\"startTime\"\\s*:\\s*\"([^\"]*)\"").find(json)?.groupValues?.get(1) ?: ""
@@ -407,7 +387,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
-    // フォールバック時にも最低限の日付・時刻を抽出する
     private fun fallbackRegistration(text: String) {
         val parsed = OcrTextParser.fallbackParseFromOcr(text)
         val title = parsed.title ?: text
@@ -418,7 +397,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             startTime = parsed.startTime,
             endTime = parsed.endTime,
             memo = parsed.summary ?: "",
-            location = null // 簡易抽出では場所の特定までは行わない
+            location = null
         )
         
         addAiMessage(ChatContent.Text("自動抽出で登録準備をしました。詳細を教えていただくか、このまま確認にお進みください。"))
@@ -443,28 +422,19 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     // ── 予定照会機能 ──────────────────────────────────────────
 
-    /**
-     * ユーザーの自然文が「予定を聞いている」かどうかを判定し、
-     * 該当する場合はDBからタスクを取得してAI応答に組み込む。
-     */
     private suspend fun handleNormalChat(text: String) {
-        // 1. 日付ベースの予定照会インテント判定
         val dateIntent = detectScheduleQueryIntent(text)
         if (dateIntent != null) {
             handleScheduleQuery(dateIntent, text)
             return
         }
 
-        // 2. トピック/キーワードベースの予定検索インテント判定
         val topicKeyword = detectTopicQueryIntent(text)
         if (topicKeyword != null) {
             handleTopicQuery(topicKeyword, text)
             return
         }
 
-        // 3. 通常の会話（予定照会でない場合）
-        //    ユーザーが予定に関する漠然とした質問をしている場合にも対応するため、
-        //    直近の予定をコンテキストとして渡す
         val upcomingTasks = withContext(Dispatchers.IO) {
             taskDao.getUpcomingTasks(20)
         }
@@ -479,7 +449,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             }
             addAiMessage(ChatContent.Text(resp ?: "すみません、よくわかりませんでした。"))
         } else {
-            // AIエンジン未ロード時もDBから直接応答
             if (upcomingTasks.isNotEmpty()) {
                 addAiMessage(ChatContent.Text(
                     "直近の予定はこちらです:\n" + formatTasksReadable(upcomingTasks.take(5))
@@ -490,22 +459,15 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * 予定照会インテントを検出する。
-     * 「明日の予定」「今週のスケジュール」「来週の月曜」等の日付キーワードを解析し、
-     * 対象日付範囲を返す。照会でない場合はnullを返す。
-     */
     private fun detectScheduleQueryIntent(text: String): ScheduleQueryIntent? {
         val today = LocalDate.now()
         val tomorrow = today.plusDays(1)
 
-        // キーワードパターンで照会インテントを判定
         val queryKeywords = listOf(
             "予定", "スケジュール", "タスク", "何がある", "何かある",
             "やること", "やる事", "用事", "計画"
         )
         val hasQueryKeyword = queryKeywords.any { text.contains(it) }
-        // 質問形式の判定
         val isQuestion = text.contains("？") || text.contains("?") ||
             text.contains("教えて") || text.contains("ある？") ||
             text.contains("ありますか") || text.contains("ある?") ||
@@ -513,10 +475,8 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             text.contains("見せて") || text.contains("一覧")
 
         if (!hasQueryKeyword && !isQuestion) return null
-        // 「予定を登録」は除外
         if (isRegistrationIntent(text)) return null
 
-        // 日付範囲の特定
         return when {
             text.contains("今日") -> ScheduleQueryIntent(
                 fromDate = today, toDate = today, label = "今日"
@@ -553,7 +513,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     label = "来月"
                 )
             }
-            // 特定の日付パターン（X月X日）
             text.contains(Regex("""(\d{1,2})月(\d{1,2})日""")) -> {
                 val match = Regex("""(\d{1,2})月(\d{1,2})日""").find(text)
                 if (match != null) {
@@ -561,7 +520,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     val day = match.groupValues[2].toInt()
                     try {
                         var targetDate = today.withMonth(month).withDayOfMonth(day)
-                        // 過去の日付なら来年に
                         if (targetDate.isBefore(today)) targetDate = targetDate.plusYears(1)
                         ScheduleQueryIntent(
                             fromDate = targetDate, toDate = targetDate,
@@ -570,13 +528,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     } catch (e: Exception) { null }
                 } else null
             }
-            // キーワードが一致しているが日付指定がない →
-            // トピック修飾語（「〇〇の予定」「〇〇関連」）がある場合はトピック検索に委譲
             hasQueryKeyword -> {
                 val topicModifiers = listOf("関連", "に関する", "について", "に関して", "の予定", "のスケジュール", "のタスク")
                 val hasTopicModifier = topicModifiers.any { text.contains(it) }
                 if (hasTopicModifier) {
-                    null  // トピック検索（detectTopicQueryIntent）に処理を委譲
+                    null
                 } else {
                     ScheduleQueryIntent(
                         fromDate = today, toDate = today.plusDays(7), label = "今後1週間"
@@ -587,9 +543,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * 予定照会を処理する
-     */
     private suspend fun handleScheduleQuery(intent: ScheduleQueryIntent, originalText: String) {
         val tasks = withContext(Dispatchers.IO) {
             taskDao.getTasksBetweenDates(
@@ -605,7 +558,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        // AIエンジンが使える場合は自然文で応答
         if (AiEngineManager.isLoaded()) {
             val taskListStr = formatTasksForAi(tasks)
             val systemPrompt = """
@@ -630,16 +582,12 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             }
             addAiMessage(ChatContent.Text(resp ?: formatTasksFallbackResponse(intent, tasks)))
         } else {
-            // AIエンジンが使えない場合はフォーマットして直接表示
             addAiMessage(ChatContent.Text(formatTasksFallbackResponse(intent, tasks)))
         }
     }
 
     // ── フォーマットユーティリティ ──────────────────────────
 
-    /**
-     * タスクリストをAIプロンプト用のテキストにフォーマットする
-     */
     private fun formatTasksForAi(tasks: List<Task>): String {
         return tasks.mapIndexed { index, task ->
             val timeStr = buildString {
@@ -654,9 +602,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }.joinToString("\n")
     }
 
-    /**
-     * タスクリストをユーザー向けの読みやすい形式にフォーマットする
-     */
     private fun formatTasksReadable(tasks: List<Task>): String {
         return tasks.joinToString("\n") { task ->
             val timeStr = if (!task.startTime.isNullOrEmpty()) " ${task.startTime}" else ""
@@ -665,17 +610,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * AIが使えない場合のフォールバック応答
-     */
     private fun formatTasksFallbackResponse(intent: ScheduleQueryIntent, tasks: List<Task>): String {
         val header = "${intent.label}の予定は${tasks.size}件です：\n"
         return header + formatTasksReadable(tasks)
     }
 
-    /**
-     * 日付範囲を表示用テキストにフォーマットする
-     */
     private fun formatDateRange(intent: ScheduleQueryIntent): String {
         val fmt = DateTimeFormatter.ofPattern("M/d")
         return if (intent.fromDate == intent.toDate) {
@@ -685,10 +624,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * 通常チャット用のシステムプロンプトを構築する。
-     * 直近のタスク情報をコンテキストとして含める。
-     */
     private fun buildChatSystemPrompt(taskContext: String): String {
         val basePrompt = """
             あなたはタスク管理アプリ「TaskScheduler」のAIアシスタントです。
@@ -712,16 +647,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     // ── トピック/キーワード検索機能 ──────────────────────────────
 
-    /**
-     * ユーザーの自然文から「〇〇関連の予定」「〇〇の予定は？」のような
-     * トピック/キーワード検索の意図を検出し、検索キーワードを返す。
-     * 該当しない場合はnullを返す。
-     */
     private fun detectTopicQueryIntent(text: String): String? {
-        // 「予定を登録」は除外
         if (isRegistrationIntent(text)) return null
 
-        // トピック照会パターン（「〇〇関連」「〇〇の予定」「〇〇について」等）
         val topicPatterns = listOf(
             Regex("(.+?)関連の?(予定|スケジュール|タスク|用事)"),
             Regex("(.+?)(?:の|に関する)(予定|スケジュール|タスク|用事)"),
@@ -734,13 +662,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             val match = pattern.find(text)
             if (match != null) {
                 val keyword = match.groupValues[1].trim()
-                // 日付キーワードは日付照会で処理済みなので除外
                 val dateKeywords = listOf(
                     "今日", "明日", "明後日", "あさって", "今週", "来週",
                     "今月", "来月", "昨日"
                 )
                 if (dateKeywords.any { keyword.contains(it) }) return null
-                // 短すぎるキーワードは誤検出防止で除外
                 if (keyword.length >= 1) return keyword
             }
         }
@@ -748,18 +674,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         return null
     }
 
-    /**
-     * トピック/キーワードベースの予定検索を処理する。
-     * タスクのタイトル・メモ・場所に対するテキスト検索と、
-     * タグ名に対する検索を統合して結果を返す。
-     */
     private suspend fun handleTopicQuery(keyword: String, originalText: String) {
-        // 1. タスクのタイトル・メモ・場所からキーワード検索
         val textMatchedTasks = withContext(Dispatchers.IO) {
             taskDao.searchTasksSync(keyword)
         }
 
-        // 2. タグ名からキーワード検索 → 該当タグに紐づくタスクを取得
         val tagMatchedTasks = withContext(Dispatchers.IO) {
             val matchedTags = tagDao.searchByNameSync(keyword)
             if (matchedTags.isNotEmpty()) {
@@ -770,7 +689,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        // 3. 結果を統合（重複除去）
         val allTasks = (textMatchedTasks + tagMatchedTasks)
             .distinctBy { it.id }
             .sortedBy { it.startDate }
@@ -782,7 +700,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        // AIエンジンが使える場合は自然文で応答
         if (AiEngineManager.isLoaded()) {
             val taskListStr = formatTasksForAi(allTasks)
             val systemPrompt = """
@@ -810,14 +727,10 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 resp ?: formatTopicFallbackResponse(keyword, allTasks)
             ))
         } else {
-            // AIエンジンが使えない場合はフォーマットして直接表示
             addAiMessage(ChatContent.Text(formatTopicFallbackResponse(keyword, allTasks)))
         }
     }
 
-    /**
-     * トピック検索でAIが使えない場合のフォールバック応答
-     */
     private fun formatTopicFallbackResponse(keyword: String, tasks: List<Task>): String {
         val header = "「${keyword}」に関連する予定は${tasks.size}件です：\n"
         return header + formatTasksReadable(tasks)
@@ -825,16 +738,13 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     // ── データクラス ──────────────────────────────────────────
 
-    /**
-     * 予定照会インテントのデータクラス
-     */
     private data class ScheduleQueryIntent(
         val fromDate: LocalDate,
         val toDate: LocalDate,
         val label: String
     )
 
-    // ── 写真メモ要約機能 ──────────────────────────────────────────
+    // ── 写真メモまとめ機能 ──────────────────────────────────────────
 
     private fun isPhotoMemoSummaryIntent(text: String): Boolean {
         val keywords = listOf(
@@ -845,10 +755,17 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         return keywords.any { text.contains(it) }
     }
 
+    /**
+     * 写真メモまとめ処理。
+     * - 未完了タスクのみ対象（完了済みは除外）
+     * - ハッシュで差分管理（同じ内容ならスキップ、変更があれば再まとめ）
+     * - appScope で実行し、画面を閉じても処理継続
+     * - 完了後に端末通知を送信
+     */
     private suspend fun handlePhotoMemoSummary(text: String) {
         val photoMemoDao = db.photoMemoDao()
 
-        // AIエンジンがロードされていなければロードを試みる
+        // AIエンジンのロード
         if (!AiEngineManager.isLoaded()) {
             val isAiEnabled = AiPreferences.getAiEnabled(getApplication()).first()
             if (isAiEnabled) {
@@ -862,74 +779,117 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         // ★ 未完了タスクのみを対象（完了済みは除外）
         val targetTasks = withContext(Dispatchers.IO) {
             taskDao.getUpcomingTasks(500)
-        }
-        val uncompletedTasks = targetTasks.filter { !it.isCompleted }
+        }.filter { !it.isCompleted }
 
-        if (uncompletedTasks.isEmpty()) {
+        if (targetTasks.isEmpty()) {
             addAiMessage(ChatContent.Text("対象となる未完了の予定が見つかりませんでした。"))
             return
         }
 
-        // 各タスクの写真メモを収集
-        data class TaskMemoBundle(val task: Task, val memoTexts: List<String>)
+        // 各タスクの写真メモを収集し、ハッシュを生成
+        data class TaskMemoBundle(
+            val task: Task,
+            val combinedText: String,
+            val contentHash: String
+        )
 
         val bundles = withContext(Dispatchers.IO) {
-            uncompletedTasks.mapNotNull { task ->
+            targetTasks.mapNotNull { task ->
                 val photoMemos = photoMemoDao.getMemosForTaskSync(task.id)
                 if (photoMemos.isEmpty()) return@mapNotNull null
 
-                val texts = photoMemos.flatMap { photo ->
-                    listOfNotNull(
+                // 写真メモを番号付きで連結（memo と ocrText の両方を含む）
+                val parts = photoMemos.mapIndexedNotNull { index, photo ->
+                    val memoLines = listOfNotNull(
                         photo.memo?.takeIf { it.isNotBlank() },
                         photo.ocrText?.takeIf { it.isNotBlank() }
                     )
-                }.distinct()
+                    if (memoLines.isEmpty()) null
+                    else "写真${index + 1}: ${memoLines.joinToString(" / ")}"
+                }
+                if (parts.isEmpty()) return@mapNotNull null
 
-                if (texts.isNotEmpty()) TaskMemoBundle(task, texts) else null
+                val combined = parts.joinToString("\n")
+                val hash = combined.hashCode().toUInt().toString(16)
+
+                TaskMemoBundle(task, combined, hash)
             }
         }
 
         if (bundles.isEmpty()) {
-            addAiMessage(ChatContent.Text("写真メモ（テキスト）が登録されている未完了の予定が見つかりませんでした。"))
+            addAiMessage(ChatContent.Text(
+                "写真メモ（テキスト）が登録されている未完了の予定が見つかりませんでした。"
+            ))
             return
         }
 
+        // ハッシュ比較で差分があるものだけを処理対象にする
+        val newOrUpdated = bundles.filter { bundle ->
+            val desc = bundle.task.description ?: ""
+            !desc.contains("hash:${bundle.contentHash}")
+        }
+
+        if (newOrUpdated.isEmpty()) {
+            addAiMessage(ChatContent.Text(
+                "${bundles.size}件の予定すべて、写真メモのまとめは最新の状態です。変更はありません。"
+            ))
+            return
+        }
+
+        val skippedCount = bundles.size - newOrUpdated.size
         val aiAvailable = AiEngineManager.isLoaded()
         val modeLabel = if (aiAvailable) "AIでまとめます" else "テキスト結合でまとめます"
 
-        // ★ ユーザーへバックグラウンド処理の案内
-        addAiMessage(ChatContent.Text(
-            "${bundles.size}件の予定から写真メモを${modeLabel}。\n" +
-            "画面を閉じても処理は継続します。完了後に通知でお知らせします。"
-        ))
+        val statusMsg = buildString {
+            append("${newOrUpdated.size}件の予定から写真メモを${modeLabel}。")
+            if (skippedCount > 0) {
+                append("\n（${skippedCount}件は変更がないためスキップ）")
+            }
+            append("\n画面を閉じても処理は継続します。完了後に通知でお知らせします。")
+        }
+        addAiMessage(ChatContent.Text(statusMsg))
 
-        // ★ appScope で起動 → viewModelScope ではないので画面を閉じても中断しない
+        // ★ appScope で起動 → 画面を閉じても処理が中断されない
         val context = getApplication<Application>()
         appScope.launch {
             try {
                 var successCount = 0
-                for (bundle in bundles) {
-                    val combinedText = bundle.memoTexts.joinToString("\n")
+                for (bundle in newOrUpdated) {
+                    val summary = summarizeMemoTexts(bundle.task.title, bundle.combinedText)
+                    if (summary.isBlank()) continue
 
-                    // 重複追記防止: 既存 description に「【写真メモまとめ】」+ 同じ冒頭があればスキップ
-                    val currentDesc = bundle.task.description ?: ""
-                    val previewKey = combinedText.take(40)
-                    if (currentDesc.contains("【写真メモまとめ】") && currentDesc.contains(previewKey)) {
-                        continue
-                    }
+                    val newBlock = "【写真メモまとめ hash:${bundle.contentHash}】\n$summary"
 
-                    val summary = summarizeMemoTexts(bundle.task.title, combinedText)
+                    withContext(Dispatchers.IO) {
+                        // 最新の description を取得
+                        val currentDesc = taskDao.getById(bundle.task.id)?.description ?: ""
 
-                    if (summary.isNotBlank()) {
-                        val appendText = "【写真メモまとめ】\n$summary"
-                        withContext(Dispatchers.IO) {
-                            taskDao.appendDescription(bundle.task.id, appendText, System.currentTimeMillis())
+                        val updatedDesc = if (currentDesc.contains("【写真メモまとめ hash:")) {
+                            // 古いまとめブロックを削除して新しいものに置換
+                            val cleaned = currentDesc.replace(
+                                Regex("【写真メモまとめ hash:[a-f0-9]+】[\\s\\S]*?(?=\\n\\n【|\\n\\n[^【]|$)"),
+                                ""
+                            ).trimEnd()
+                            if (cleaned.isBlank()) newBlock
+                            else "$cleaned\n\n$newBlock"
+                        } else {
+                            // まとめ未実施 → 追記
+                            if (currentDesc.isBlank()) newBlock
+                            else "$currentDesc\n\n$newBlock"
                         }
-                        successCount++
+
+                        val task = taskDao.getById(bundle.task.id)
+                        if (task != null) {
+                            taskDao.update(task.copy(
+                                description = updatedDesc,
+                                updatedAt = System.currentTimeMillis()
+                            ))
+                        }
                     }
+                    successCount++
                 }
 
-                // 処理完了 → チャットにメッセージ追加（画面が開いていれば表示される）
+                // 処理完了 → チャットにメッセージ（画面が開いていれば表示される）
                 withContext(Dispatchers.Main) {
                     addAiMessage(ChatContent.Text(
                         "写真メモまとめ完了！${successCount}件の予定のメモに追記しました。"
@@ -952,17 +912,26 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * メモテキストをAIで要約する。AI未ロード時はフォールバック（箇条書き結合）。
+     * メモテキストをAIでまとめる。精度重視で全文をAIに渡す。
+     * AI未ロード時はフォールバック（箇条書き整形）。
      */
     private suspend fun summarizeMemoTexts(taskTitle: String, memoText: String): String {
-        // AIエンジンが使えるならAIまとめ
         if (AiEngineManager.isLoaded()) {
             val prompt = """
-                以下は予定「${taskTitle}」に添付された写真メモの内容です。
-                重要な情報を簡潔にまとめてください（3〜5行程度）。
-                箇条書きは「・」を使ってください。Markdown記法は使わないでください。
+                あなたは優秀な日本語の要約アシスタントです。
 
-                写真メモ:
+                以下は予定「${taskTitle}」に添付された写真メモの内容です。
+                複数の写真メモが含まれる場合があります。
+
+                【指示】
+                - すべての写真メモの内容を漏れなく読み取ってください
+                - 重要な情報（日付、金額、人名、場所、数値、期限、条件など）は省略せず正確に残してください
+                - 重複する情報は1つにまとめてください
+                - 箇条書きは「・」を使い、関連する情報はグループ化してください
+                - 写真ごとに内容が異なる場合は区別がつくようにまとめてください
+                - Markdown記法は使わないでください
+
+                【写真メモ内容】
                 $memoText
             """.trimIndent()
 
@@ -972,10 +941,12 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             if (!response.isNullOrBlank()) return response.trim()
         }
 
-        // フォールバック: AI未使用時は各行の先頭を連結
-        val lines = memoText.lines().filter { it.isNotBlank() }
-        return lines.joinToString("\n") { line ->
-            "・${line.take(80)}${if (line.length > 80) "…" else ""}"
-        }
+        // フォールバック: 各行を箇条書きに整形（文字数制限なし）
+        return memoText.lines()
+            .filter { it.isNotBlank() }
+            .joinToString("\n") { line ->
+                if (line.startsWith("写真")) line
+                else "・$line"
+            }
     }
 }

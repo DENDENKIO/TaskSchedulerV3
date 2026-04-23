@@ -18,6 +18,11 @@ object NotificationHelper {
 
     private const val DRAFT_BATCH_NOTIFICATION_ID = 99999
 
+    // ★追加: 写真メモまとめ用
+    private const val MEMO_CHANNEL_ID = "memo_summary"
+    private const val MEMO_CHANNEL_NAME = "写真メモまとめ"
+    private const val MEMO_SUMMARY_NOTIFICATION_ID = 99998
+
     fun createChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
 
@@ -27,11 +32,17 @@ object NotificationHelper {
         ).apply { description = "タスクリマインダーの通知チャンネル" }
         manager.createNotificationChannel(taskChannel)
 
-        // 新規: 仮登録バッチ処理
+        // 既存: 仮登録バッチ処理
         val draftChannel = NotificationChannel(
             DRAFT_CHANNEL_ID, DRAFT_CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT
         ).apply { description = "仮登録の一括処理完了通知" }
         manager.createNotificationChannel(draftChannel)
+
+        // ★追加: 写真メモまとめ
+        val memoChannel = NotificationChannel(
+            MEMO_CHANNEL_ID, MEMO_CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT
+        ).apply { description = "写真メモのAIまとめ処理完了通知" }
+        manager.createNotificationChannel(memoChannel)
     }
 
     fun showNotification(context: Context, taskId: Int, title: String, message: String) {
@@ -106,23 +117,16 @@ object NotificationHelper {
         manager.notify(DRAFT_BATCH_NOTIFICATION_ID, notification)
     }
 
-    // ── 写真メモまとめ通知 ──────────────────────────────────
-
-    private const val MEMO_CHANNEL_ID = "memo_summary"
-    private const val MEMO_CHANNEL_NAME = "写真メモまとめ"
-    private const val MEMO_SUMMARY_NOTIFICATION_ID = 99998
-
     /**
-     * 写真メモまとめ処理完了時の通知。
+     * ★追加: 写真メモまとめ処理完了通知。
      * @param count 成功件数。-1 ならエラー通知。
      */
     fun showMemoSummaryComplete(context: Context, count: Int) {
         val manager = context.getSystemService(NotificationManager::class.java)
 
-        // チャンネル作成
+        // チャンネル作成（createChannel が呼ばれていない場合の保険）
         val channel = NotificationChannel(
-            MEMO_CHANNEL_ID, MEMO_CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_DEFAULT
+            MEMO_CHANNEL_ID, MEMO_CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT
         ).apply { description = "写真メモのAIまとめ処理完了通知" }
         manager.createNotificationChannel(channel)
 
@@ -136,7 +140,6 @@ object NotificationHelper {
             body = "処理中にエラーが発生しました。もう一度お試しください。"
         }
 
-        // タップで MainActivity を開く
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
