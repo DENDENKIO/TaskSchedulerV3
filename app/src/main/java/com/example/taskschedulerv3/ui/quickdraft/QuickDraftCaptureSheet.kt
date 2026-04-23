@@ -212,7 +212,7 @@ fun QuickDraftCaptureSheet(
     ModalBottomSheet(
         onDismissRequest = {
             if (capturedPaths.isEmpty()) {
-                onDismiss()
+                closeSheetSafely()
             }
             // 写真がある場合はconfirmValueChangeで制御
         },
