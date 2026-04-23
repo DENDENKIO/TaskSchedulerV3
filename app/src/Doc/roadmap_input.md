@@ -1,3 +1,16 @@
+要件を整理します：
+
+1. **ダイアログは完全に不要** — 破棄確認ダイアログ自体をなくす
+2. **画面を半分以上下ろしたら閉じる** — 50%以上スワイプダウンしたらそのまま閉じる
+3. **半分未満なら元に戻る** — 少しスワイプしただけでは閉じない
+
+つまり、`confirmValueChange` + ダイアログの仕組みを完全に廃止し、`skipPartiallyExpanded = false` にした上でオフセット監視で制御するか、もっとシンプルに `confirmValueChange` だけで制御するアプローチが必要です。
+
+ただし `confirmValueChange` 内で `sheetState` 自身を参照できない問題があるので、`sheetState` のオフセットを外部の変数にキャプチャする方式にします。
+
+修正後のファイル全体をお渡しします。変更した箇所には `// ★変更` のコメントをつけています。
+
+```kotlin
 package com.example.taskschedulerv3.ui.addtask
 
 import androidx.compose.foundation.clickable
@@ -86,17 +99,27 @@ fun AddTaskBottomSheet(
     val isOcrProcessing by photoVm.isProcessing.collectAsState()
 
     // ==========================================
-    // シートを安全に閉じるための仕組み
+    // ★変更: シンプルに下スワイプで閉じる仕組み（ダイアログなし）
     // ==========================================
     val scope = rememberCoroutineScope()
+    var forceClose by remember { mutableStateOf(false) }
 
+    // ★変更: confirmValueChange で常にブロック（閉じる判定は LaunchedEffect で行う）
     val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true
+        skipPartiallyExpanded = true,
+        confirmValueChange = { newValue ->
+            if (newValue == SheetValue.Hidden && !forceClose) {
+                false   // スワイプによる Hidden 遷移は常にブロック
+            } else {
+                true
+            }
+        }
     )
 
     // アニメーションを完了させてから安全に破棄する関数
     fun closeSheetSafely() {
         scope.launch {
+            forceClose = true
             try {
                 sheetState.hide()
             } catch (e: Exception) {
@@ -121,6 +144,20 @@ fun AddTaskBottomSheet(
         }
     }
 
+    // ★追加: シートのオフセットを監視し、50%以上下げたらダイアログなしで即閉じる
+    LaunchedEffect(sheetState) {
+        snapshotFlow {
+            try {
+                sheetState.requireOffset()
+            } catch (e: Exception) {
+                0f
+            }
+        }.collect { offset ->
+            if (sheetHeight > 0f && offset >= sheetHeight * 0.5f && !forceClose) {
+                closeSheetSafely()
+            }
+        }
+    }
 
     // ★変更: 破棄確認ダイアログを完全に削除
 
@@ -638,3 +675,4 @@ fun AddTaskBottomSheet(
 } // Box
 } // ModalBottomSheet
 }
+```
