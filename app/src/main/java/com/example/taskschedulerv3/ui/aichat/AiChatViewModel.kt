@@ -64,7 +64,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             "・予定の確認：「明日の予定は？」「今週の予定を教えて」\n" +
             "・予定の検索：「仕事関連の予定」「歯医者の予定は？」\n" +
             "・予定の登録：「予定を登録」と入力\n" +
-            "・写真メモ要約：「写真メモを要約」と入力すると、写真メモの内容をAIで要約して予定のメモに追記します"
+            "・写真メモまとめ：「写真メモをまとめる」と入力すると、写真メモの内容をAIでまとめて予定のメモに追記します"
         ))
         viewModelScope.launch {
             tagDao.getAll().collect { _allTags.value = it }
@@ -832,10 +832,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun isPhotoMemoSummaryIntent(text: String): Boolean {
         val keywords = listOf(
-            "写真メモを要約", "写真メモ要約", "写真メモをまとめ",
-            "カメラメモを要約", "カメラメモ要約", "カメラメモをまとめ",
-            "メモを要約", "メモ要約", "OCR要約", "写真の要約",
-            "写真まとめ", "メモまとめ"
+            "写真メモをまとめ", "写真メモまとめ", "カメラメモをまとめ",
+            "カメラメモまとめ", "メモをまとめ", "メモまとめ",
+            "写真まとめ", "写真メモを要約", "写真メモ要約"
         )
         return keywords.any { text.contains(it) }
     }
@@ -843,22 +842,32 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun handlePhotoMemoSummary(text: String) {
         val photoMemoDao = db.photoMemoDao()
 
-        // 全タスク（未完了+完了+削除されていないもの）を対象にする
-        val allTasksList = withContext(Dispatchers.IO) {
-            taskDao.getUpcomingTasks(500) // 未完了
+        // ★追加: AIエンジンがロードされていなければロードを試みる
+        if (!AiEngineManager.isLoaded()) {
+            val isAiEnabled = AiPreferences.getAiEnabled(getApplication()).first()
+            if (isAiEnabled) {
+                addAiMessage(ChatContent.Text("AIモデルを準備しています...少しお待ちください。"))
+                withContext(Dispatchers.IO) {
+                    AiEngineManager.loadEngine(getApplication())
+                }
+            }
         }
-        // 完了タスクも対象にしたいので別途取得
+
+        // 全タスク（未完了+完了）を対象にする
+        val allTasksList = withContext(Dispatchers.IO) {
+            taskDao.getUpcomingTasks(500)
+        }
         val completedTasks = withContext(Dispatchers.IO) {
             taskDao.getCompletedTasksSync()
         }
         val targetTasks = (allTasksList + completedTasks).distinctBy { it.id }
 
         if (targetTasks.isEmpty()) {
-            addAiMessage(ChatContent.Text("要約対象となる予定が見つかりませんでした。"))
+            addAiMessage(ChatContent.Text("対象となる予定が見つかりませんでした。"))
             return
         }
 
-        // 各タスクの写真メモを収集（memo と ocrText の両方を見る）
+        // 各タスクの写真メモを収集
         data class TaskMemoBundle(val task: Task, val memoTexts: List<String>)
 
         val bundles = withContext(Dispatchers.IO) {
@@ -866,7 +875,6 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 val photoMemos = photoMemoDao.getMemosForTaskSync(task.id)
                 if (photoMemos.isEmpty()) return@mapNotNull null
 
-                // memo フィールドと ocrText フィールドの両方からテキストを収集
                 val texts = photoMemos.flatMap { photo ->
                     listOfNotNull(
                         photo.memo?.takeIf { it.isNotBlank() },
@@ -883,7 +891,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        addAiMessage(ChatContent.Text("${bundles.size}件の予定から写真メモを要約します..."))
+        val aiAvailable = AiEngineManager.isLoaded()
+        val modeLabel = if (aiAvailable) "AIでまとめます" else "テキスト結合でまとめます"
+        addAiMessage(ChatContent.Text("${bundles.size}件の予定から写真メモを${modeLabel}..."))
 
         var successCount = 0
         for (bundle in bundles) {
@@ -891,7 +901,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             val summary = summarizeMemoTexts(bundle.task.title, combinedText)
 
             if (summary.isNotBlank()) {
-                val appendText = "【写真メモ要約】\n$summary"
+                val appendText = "【写真メモまとめ】\n$summary"
                 withContext(Dispatchers.IO) {
                     taskDao.appendDescription(bundle.task.id, appendText, System.currentTimeMillis())
                 }
@@ -900,7 +910,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         addAiMessage(ChatContent.Text(
-            "完了！${successCount}件の予定のメモに写真メモの要約を追記しました。"
+            "完了！${successCount}件の予定のメモに写真メモのまとめを追記しました。"
         ))
     }
 
@@ -908,11 +918,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
      * メモテキストをAIで要約する。AI未ロード時はフォールバック（箇条書き結合）。
      */
     private suspend fun summarizeMemoTexts(taskTitle: String, memoText: String): String {
-        // AIエンジンが使えるならAI要約
+        // AIエンジンが使えるならAIまとめ
         if (AiEngineManager.isLoaded()) {
             val prompt = """
                 以下は予定「${taskTitle}」に添付された写真メモの内容です。
-                重要な情報を箇条書きで簡潔に要約してください。Markdown記法は使わず、
+                重要な情報を簡潔にまとめてください（3〜5行程度）。
                 箇条書きは「・」を使ってください。Markdown記法は使わないでください。
 
                 写真メモ:
