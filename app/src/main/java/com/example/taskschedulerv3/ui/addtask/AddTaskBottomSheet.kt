@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -54,7 +55,6 @@ fun AddTaskBottomSheet(
     onDismiss: () -> Unit,
     vm: AddTaskViewModel = viewModel()
 ) {
-    var showCloseConfirmation by remember { mutableStateOf(false) }
     var sheetHeight by remember { mutableFloatStateOf(0f) }
 
     val title by vm.title.collectAsState()
@@ -85,23 +85,26 @@ fun AddTaskBottomSheet(
     val isOcrProcessing by photoVm.isProcessing.collectAsState()
 
     // ==========================================
-    // 修正：シートを安全に閉じるための仕組み（アニメーションを待ってから消す）
+    // シートを安全に閉じるための仕組み
     // ==========================================
     val scope = rememberCoroutineScope()
     var forceClose by remember { mutableStateOf(false) }
 
+    val sheetStateRef = remember { mutableStateOf<SheetState?>(null) }
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
         confirmValueChange = { newValue ->
             if (newValue == SheetValue.Hidden && !forceClose) {
-                // スワイプや外側タップで閉じようとしたら一旦ブロックして確認ダイアログを出す
-                showCloseConfirmation = true
-                false 
+                // シート高さの50%以上ドラッグしないと閉じないようにする
+                val currentOffset = sheetStateRef.value?.requireOffset() ?: 0f
+                val threshold = sheetHeight * 0.5f
+                currentOffset > threshold
             } else {
                 true
             }
         }
     )
+    SideEffect { sheetStateRef.value = sheetState }
 
     // アニメーションを完了させてから安全に破棄する関数
     fun closeSheetSafely() {
@@ -131,31 +134,6 @@ fun AddTaskBottomSheet(
         }
     }
 
-    // 破棄確認ダイアログ
-    if (showCloseConfirmation) {
-        AlertDialog(
-            onDismissRequest = { 
-                showCloseConfirmation = false 
-                scope.launch { sheetState.show() } // 状態リセット
-            },
-            title = { Text("内容の破棄") },
-            text = { Text("入力中の内容は保存されません。破棄して閉じますか？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showCloseConfirmation = false
-                        closeSheetSafely()
-                    }
-                ) { Text("破棄", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { 
-                    showCloseConfirmation = false 
-                    scope.launch { sheetState.show() } // 状態リセット
-                }) { Text("キャンセル") }
-            }
-        )
-    }
 
     // DatePicker/TimePicker state
     var showDatePicker by remember { mutableStateOf(false) }
@@ -227,7 +205,7 @@ fun AddTaskBottomSheet(
         OcrResultDialog(
             text = ocrResult!!,
             onApplyToTitle = { vm.title.value = it },
-            onApplyToDescription = { text, append -> 
+            onApplyToDescription = { text, append ->
                 if (append) vm.description.value += "\n$text"
                 else vm.description.value = text
             },
@@ -273,7 +251,7 @@ fun AddTaskBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = {
-            showCloseConfirmation = true
+            closeSheetSafely()
         },
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
@@ -295,7 +273,7 @@ fun AddTaskBottomSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { showCloseConfirmation = true }) {
+                    IconButton(onClick = { closeSheetSafely() }) {
                         Icon(Icons.Default.Close, contentDescription = "閉じる")
                     }
             Text(
@@ -366,18 +344,18 @@ fun AddTaskBottomSheet(
                         }
                         FilterChip(
                             selected = scheduleType == type,
-                            onClick = { 
+                            onClick = {
                                 vm.scheduleType.value = type
                                 if (type == ScheduleType.RECURRING && recurrencePattern == null) {
                                     vm.recurrencePattern.value = RecurrencePattern.DAILY
                                 }
                             },
-                            label = { 
+                            label = {
                                 Text(
-                                    label, 
+                                    label,
                                     modifier = Modifier.fillMaxWidth(),
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                ) 
+                                )
                             },
                             modifier = Modifier.weight(1f)
                         )
@@ -392,7 +370,7 @@ fun AddTaskBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text("繰り返し設定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    
+
                     // パターン選択
                     val patterns: List<Pair<RecurrencePattern, String>> = listOf(
                         RecurrencePattern.DAILY to "毎日",
@@ -400,7 +378,7 @@ fun AddTaskBottomSheet(
                         RecurrencePattern.WEEKLY_MULTI to "曜日指定",
                         RecurrencePattern.MONTHLY_DATES to "日付指定"
                     )
-                    
+
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         patterns.forEach { (p, label) ->
                             FilterChip(
@@ -425,7 +403,7 @@ fun AddTaskBottomSheet(
                         RecurrencePattern.WEEKLY_MULTI -> {
                             val weekDays = listOf("月", "火", "水", "木", "金", "土", "日")
                             val selectedDays = recurrenceDays.split(",").filter { it.isNotBlank() }.toSet()
-                            
+
                             FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -465,9 +443,9 @@ fun AddTaskBottomSheet(
 
                     // 終了期限（任意）
                     OutlinedButton(
-                        onClick = { 
+                        onClick = {
                             isPickingRecurrenceEnd = true
-                            showEndDatePicker = true 
+                            showEndDatePicker = true
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -477,9 +455,9 @@ fun AddTaskBottomSheet(
             } else if (scheduleType == ScheduleType.PERIOD) {
                 // 期間予定用終了日
                 OutlinedButton(
-                    onClick = { 
+                    onClick = {
                         isPickingRecurrenceEnd = false
-                        showEndDatePicker = true 
+                        showEndDatePicker = true
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -615,7 +593,7 @@ fun AddTaskBottomSheet(
                         Text("追加 / 編集")
                     }
                 }
-                
+
                 if (relatedTasks.isEmpty()) {
                     Text("関連する予定はありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
