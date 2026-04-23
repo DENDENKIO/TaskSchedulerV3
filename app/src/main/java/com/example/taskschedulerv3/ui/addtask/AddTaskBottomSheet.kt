@@ -22,7 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow                // ★追加
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -55,7 +55,6 @@ fun AddTaskBottomSheet(
     onDismiss: () -> Unit,
     vm: AddTaskViewModel = viewModel()
 ) {
-    // ★変更: showCloseConfirmation を削除
     var sheetHeight by remember { mutableFloatStateOf(0f) }
 
     val title by vm.title.collectAsState()
@@ -135,8 +134,6 @@ fun AddTaskBottomSheet(
         }
     }
 
-
-    // ★変更: 破棄確認ダイアログを完全に削除
 
     // DatePicker/TimePicker state
     var showDatePicker by remember { mutableStateOf(false) }
@@ -254,7 +251,6 @@ fun AddTaskBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = {
-            // ★変更: 外側タップでもダイアログなしで即閉じる
             closeSheetSafely()
         },
         sheetState = sheetState,
@@ -277,7 +273,6 @@ fun AddTaskBottomSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // ★変更: ×ボタンもダイアログなしで即閉じる
                     IconButton(onClick = { closeSheetSafely() }) {
                         Icon(Icons.Default.Close, contentDescription = "閉じる")
                     }
