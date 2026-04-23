@@ -94,4 +94,8 @@ interface TaskDao {
     // AIチャット用: 特定日のタスクを取得（同期）
     @Query("SELECT * FROM tasks WHERE startDate = :date AND isDeleted = 0 ORDER BY startTime ASC")
     suspend fun getTasksByDateSync(date: String): List<Task>
+
+    // ★追加: AI要約追記用
+    @Query("UPDATE tasks SET description = CASE WHEN description IS NULL OR description = '' THEN :text ELSE description || '\n\n' || :text END, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun appendDescription(id: Int, text: String, updatedAt: Long)
 }

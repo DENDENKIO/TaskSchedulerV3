@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.taskschedulerv3.data.db.AppDatabase
 import com.example.taskschedulerv3.data.model.PhotoMemo
 import com.example.taskschedulerv3.data.model.RoadmapStep
+import com.example.taskschedulerv3.data.model.Tag
 import com.example.taskschedulerv3.data.model.Task
+import com.example.taskschedulerv3.data.model.TaskTagCrossRef
 import com.example.taskschedulerv3.data.repository.TaskRelationRepository
 import com.example.taskschedulerv3.data.repository.TaskRepository
 import kotlinx.coroutines.flow.*
@@ -18,8 +20,10 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.getInstance(app)
     private val repo = TaskRepository(db.taskDao(), db.roadmapStepDao())
     private val relationRepo = TaskRelationRepository(db.taskRelationDao())
+    private val crossRefDao = db.taskTagCrossRefDao()                    // ★追加
 
     private val _taskId = MutableStateFlow<Int?>(null)
+
 
     val task: StateFlow<Task?> = _taskId
         .filterNotNull()
@@ -63,8 +67,25 @@ class TaskDetailViewModel(app: Application) : AndroidViewModel(app) {
         .filterNotNull()
         .flatMapLatest { id -> db.photoMemoDao().getByTaskId(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    
+    // ★追加: タグ関連
+    val allTags: StateFlow<List<Tag>> = db.tagDao().getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val taskTags: StateFlow<List<Tag>> = _taskId
+        .filterNotNull()
+        .flatMapLatest { id -> crossRefDao.getTagsByTaskId(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun loadTask(id: Int) { _taskId.value = id }
+
+    // ★追加: タグ更新
+    fun updateTags(taskId: Int, newTagIds: Set<Int>) = viewModelScope.launch {
+        crossRefDao.deleteByTaskId(taskId)
+        newTagIds.forEach { tagId ->
+            crossRefDao.insert(TaskTagCrossRef(taskId = taskId, tagId = tagId))
+        }
+    }
 
     fun toggleComplete(task: Task) = viewModelScope.launch {
         if (task.roadmapEnabled) {

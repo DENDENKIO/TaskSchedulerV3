@@ -152,6 +152,14 @@ fun ScheduleListScreenHighDensity(
             modifier = Modifier.height(44.dp)
         ) {
             Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                // ★追加: 「すべて」チップ
+                FilterChip(
+                    selected = selectedTagId == null,
+                    onClick = { vm.setTagFilter(null) },
+                    label = { Text("すべて", fontSize = 11.sp) },
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+
                 allTags.forEach { tag ->
                     FilterChip(
                         selected = selectedTagId == tag.id,

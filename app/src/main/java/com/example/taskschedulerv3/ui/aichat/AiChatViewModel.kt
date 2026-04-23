@@ -94,6 +94,8 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             WizardStep.IDLE -> {
                 if (isRegistrationIntent(text)) {
                     startRegistrationFlow(text)
+                } else if (isPhotoMemoSummaryIntent(text)) {     // ★追加
+                    handlePhotoMemoSummary(text)
                 } else {
                     handleNormalChat(text)
                 }
@@ -823,4 +825,61 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         val toDate: LocalDate,
         val label: String
     )
+
+    // ── 写真メモ要約機能 ──────────────────────────────────────────
+
+    private fun isPhotoMemoSummaryIntent(text: String): Boolean {
+        return text.contains("写真メモ") && (text.contains("要約") || text.contains("まとめ"))
+    }
+
+    private suspend fun handlePhotoMemoSummary(text: String) {
+        // 直近のタスクを取得（本当は特定タスクの指定が必要だが、ここでは「最新のタスク」か「検索」を想定）
+        val tasks = withContext(Dispatchers.IO) {
+            taskDao.getUpcomingTasks(5) // 直近5件から選ばせるか、最新のものを対象にする
+        }
+
+        if (tasks.isEmpty()) {
+            addAiMessage(ChatContent.Text("要約対象となる予定が見つかりませんでした。"))
+            return
+        }
+
+        val targetTask = tasks.first() // 簡易的に最新の1件を対象とする
+        val memos = withContext(Dispatchers.IO) {
+            db.photoMemoDao().getMemosForTaskSync(targetTask.id)
+        }
+
+        val ocrTexts = memos.mapNotNull { it.ocrText }.filter { it.isNotBlank() }
+        if (ocrTexts.isEmpty()) {
+            addAiMessage(ChatContent.Text("『${targetTask.title}』に関連する写真メモ（OCRテキスト）が見つかりませんでした。"))
+            return
+        }
+
+        addAiMessage(ChatContent.Text("『${targetTask.title}』の写真メモを要約中..."))
+        
+        val summary = summarizeMemos(ocrTexts)
+        if (summary != null) {
+            withContext(Dispatchers.IO) {
+                taskDao.appendDescription(targetTask.id, "【写真メモ要約】\n$summary", System.currentTimeMillis())
+            }
+            addAiMessage(ChatContent.Text("要約が完了し、予定のメモ欄に追記しました：\n\n$summary"))
+        } else {
+            addAiMessage(ChatContent.Text("要約に失敗しました。"))
+        }
+    }
+
+    private suspend fun summarizeMemos(texts: List<String>): String? {
+        if (!AiEngineManager.isLoaded()) return null
+        val combined = texts.joinToString("\n---\n")
+        val prompt = """
+            以下の複数のテキスト（写真から抽出されたOCRテキスト）を統合し、重要な情報を箇条書きで簡潔に要約してください。
+            重複する情報はまとめ、日付・時刻・場所・持ち物・注意事項などを整理してください。
+            
+            テキスト群:
+            $combined
+        """.trimIndent()
+
+        return withContext(Dispatchers.IO) {
+            AiEngineManager.generateResponse(prompt)
+        }
+    }
 }

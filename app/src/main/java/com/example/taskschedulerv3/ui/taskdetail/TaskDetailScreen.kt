@@ -31,6 +31,8 @@ import com.example.taskschedulerv3.data.model.ScheduleType
 import com.example.taskschedulerv3.data.model.Task
 import com.example.taskschedulerv3.navigation.Screen
 import com.example.taskschedulerv3.util.PhotoFileManager
+import com.example.taskschedulerv3.ui.components.TagSelector
+import com.example.taskschedulerv3.ui.tag.parseColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +46,10 @@ fun TaskDetailScreen(
     val relatedTasks by vm.relatedTasks.collectAsState()
     val photos by vm.photos.collectAsState()
     val roadmapSteps by vm.roadmapSteps.collectAsState() // ステップ6
+    val allTags by vm.allTags.collectAsState()           // ★追加
+    val taskTags by vm.taskTags.collectAsState()         // ★追加
+
+    var showTagEditor by remember { mutableStateOf(false) } // ★追加
 
     LaunchedEffect(taskId) { vm.loadTask(taskId) }
 
@@ -151,6 +157,49 @@ fun TaskDetailScreen(
                     }
                 }
 
+                // ★追加: タグセクション
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("タグ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                IconButton(onClick = { showTagEditor = true }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Edit, contentDescription = "タグ編集", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            if (taskTags.isEmpty()) {
+                                Text("タグなし", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            } else {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    taskTags.forEach { tag ->
+                                        Surface(
+                                            color = parseColor(tag.color).copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(4.dp),
+                                            border = androidx.compose.foundation.BorderStroke(0.5.dp, parseColor(tag.color))
+                                        ) {
+                                            Text(
+                                                text = tag.name,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = parseColor(tag.color)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+
 
                 // Notification
                 item {
@@ -253,6 +302,29 @@ fun TaskDetailScreen(
             }
         } ?: Box(modifier = Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
+        }
+
+        if (showTagEditor && task != null) {
+            AlertDialog(
+                onDismissRequest = { showTagEditor = false },
+                title = { Text("タグを編集") },
+                text = {
+                    TagSelector(
+                        allTags = allTags,
+                        selectedTagIds = taskTags.map { it.id }.toSet(),
+                        onTagsChanged = { newIds: Set<Int> ->
+                            task?.let { vm.updateTags(it.id, newIds) }
+                        },
+                        onNavigateToTagManage = {
+                            showTagEditor = false
+                            navController.navigate(Screen.TagManage.route)
+                        }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { showTagEditor = false }) { Text("完了") }
+                }
+            )
         }
     }
 }

@@ -51,4 +51,8 @@ interface PhotoMemoDao {
 
     @Query("UPDATE photo_memos SET ocrText = :ocrText WHERE id = :photoId")
     suspend fun updateOcrText(photoId: Int, ocrText: String)
+
+    // ★追加: AI要約用（同期取得）
+    @Query("SELECT * FROM photo_memos WHERE taskId = :taskId")
+    suspend fun getMemosForTaskSync(taskId: Int): List<PhotoMemo>
 }
