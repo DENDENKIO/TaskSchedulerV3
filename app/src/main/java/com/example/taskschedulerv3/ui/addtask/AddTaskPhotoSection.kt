@@ -112,19 +112,15 @@ fun AddTaskPhotoSection(
     }
 
     if (showSourcePicker) {
-        var showCloseConfirmation by remember { mutableStateOf(false) }
         var sheetHeight by remember { mutableFloatStateOf(0f) }
         val pickerSheetStateRef = remember { mutableStateOf<SheetState?>(null) }
         val pickerSheetState = rememberModalBottomSheetState(
             confirmValueChange = { newValue ->
                 if (newValue == SheetValue.Hidden) {
+                    // シート高さの50%以上ドラッグしないと閉じないようにする
                     val currentOffset = pickerSheetStateRef.value?.requireOffset() ?: 0f
-                    val threshold = sheetHeight * 0.8f
-                    
-                    if (currentOffset > threshold) {
-                        showCloseConfirmation = true
-                    }
-                    false
+                    val threshold = sheetHeight * 0.5f
+                    currentOffset > threshold
                 } else {
                     true
                 }
@@ -132,27 +128,8 @@ fun AddTaskPhotoSection(
         )
         SideEffect { pickerSheetStateRef.value = pickerSheetState }
 
-        if (showCloseConfirmation) {
-            AlertDialog(
-                onDismissRequest = { showCloseConfirmation = false },
-                title = { Text("閉じる") },
-                text = { Text("写真の追加をキャンセルしますか？") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showCloseConfirmation = false
-                            showSourcePicker = false
-                        }
-                    ) { Text("閉じる") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCloseConfirmation = false }) { Text("戻る") }
-                }
-            )
-        }
-
         ModalBottomSheet(
-            onDismissRequest = { showCloseConfirmation = true },
+            onDismissRequest = { showSourcePicker = false },
             sheetState = pickerSheetState
         ) {
             Box(

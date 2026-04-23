@@ -34,7 +34,6 @@ fun TaskPhotoPickerSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var showCloseConfirmation by remember { mutableStateOf(false) }
     var sheetHeight by remember { mutableFloatStateOf(0f) }
     var tempCameraFile by remember { mutableStateOf<File?>(null) }
 
@@ -64,13 +63,10 @@ fun TaskPhotoPickerSheet(
     val pickerSheetState = rememberModalBottomSheetState(
         confirmValueChange = { newValue ->
             if (newValue == SheetValue.Hidden) {
+                // シート高さの50%以上ドラッグしないと閉じないようにする
                 val currentOffset = pickerSheetStateRef.value?.requireOffset() ?: 0f
-                val threshold = sheetHeight * 0.8f
-                
-                if (currentOffset > threshold) {
-                    showCloseConfirmation = true
-                }
-                false
+                val threshold = sheetHeight * 0.5f
+                currentOffset > threshold
             } else {
                 true
             }
@@ -78,28 +74,8 @@ fun TaskPhotoPickerSheet(
     )
     SideEffect { pickerSheetStateRef.value = pickerSheetState }
 
-    // 破棄確認ダイアログ
-    if (showCloseConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showCloseConfirmation = false },
-            title = { Text("閉じる") },
-            text = { Text("写真の追加をキャンセルしますか？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showCloseConfirmation = false
-                        onDismiss()
-                    }
-                ) { Text("閉じる") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCloseConfirmation = false }) { Text("戻る") }
-            }
-        )
-    }
-
     ModalBottomSheet(
-        onDismissRequest = { showCloseConfirmation = true },
+        onDismissRequest = { onDismiss() },
         sheetState = pickerSheetState
     ) {
         Box(
