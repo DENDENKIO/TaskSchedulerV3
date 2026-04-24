@@ -30,6 +30,10 @@ interface RoadmapStepDao {
     @Query("SELECT * FROM roadmap_steps")
     suspend fun getAllStepsSync(): List<RoadmapStep>
 
+    // ★追加: Flow版（リアクティブにキャッシュ更新するため）
+    @Query("SELECT * FROM roadmap_steps")
+    fun getAllStepsFlow(): Flow<List<RoadmapStep>>
+
     @Query("SELECT * FROM roadmap_steps WHERE taskId = :taskId ORDER BY sortOrder ASC")
     suspend fun getStepsForTaskSync(taskId: Int): List<RoadmapStep>
 

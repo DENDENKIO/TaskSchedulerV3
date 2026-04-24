@@ -73,6 +73,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentTaskId IS NOT NULL AND isDeleted = 0")
     suspend fun getAllChildrenSync(): List<Task>
 
+    // ★追加: Flow版（リアクティブキャッシュ用）
+    @Query("SELECT * FROM tasks WHERE parentTaskId IS NOT NULL AND isDeleted = 0")
+    fun getAllChildrenFlow(): Flow<List<Task>>
+
     @Query("UPDATE tasks SET activeRoadmapStepId = :stepId, updatedAt = :updatedAt WHERE id = :taskId")
     suspend fun updateActiveRoadmapStep(taskId: Int, stepId: Int?, updatedAt: Long)
 

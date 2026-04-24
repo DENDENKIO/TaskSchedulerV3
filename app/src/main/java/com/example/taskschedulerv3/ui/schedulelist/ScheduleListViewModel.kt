@@ -30,20 +30,15 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     val filterDateFrom = MutableStateFlow("")
     val filterDateTo = MutableStateFlow("")
 
-    // 表示モード (第3弾) - デフォルトを「すべて」に変更
     val displayMode = MutableStateFlow(DisplayMode.ALL)
 
-    // タグフィルタ (第3弾) — 単一選択
     val selectedTagId = MutableStateFlow<Int?>(null)
 
-    // All tags for filter chips
     val allTags: StateFlow<List<Tag>> = db.tagDao().getAllForFilter()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // 後方互換のため維持 (旧コードとの互換)
     val filterTagId: MutableStateFlow<Int?> get() = selectedTagId
 
-    // 仮登録一覧
     val drafts = draftRepo.getDrafts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -74,7 +69,7 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             DisplayMode.INDEFINITE -> repo.getAll().map { list -> list.filter { it.isIndefinite && !it.isCompleted } }
-            DisplayMode.DRAFT -> flowOf(emptyList()) // DRAFTは別Flow(drafts)で扱うため
+            DisplayMode.DRAFT -> flowOf(emptyList())
             else -> repo.getAll().map { list -> list.filter { !it.isCompleted } }
         }
     }
@@ -104,6 +99,9 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    // ★改善: searchQuery の debounce を検索にのみ適用するため分離
+    private val debouncedSearch = searchQuery.debounce(300)
+
     /** タグフィルタ関連情報をまとめる Flow */
     private val tagFilterInfo = combine(
         selectedTagId,
@@ -115,24 +113,21 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
 
     val tasks: StateFlow<List<Task>> = combine(
         baseTaskFlow,
-        searchQuery.debounce(300),
+        debouncedSearch,
         sortOption,
         tagFilterInfo
     ) { list, query, sort, tagInfo ->
         val (tagId, taggedIds, tagMap) = tagInfo
         var result = list
 
-        // 検索
         if (query.isNotBlank()) {
             result = result.filter { it.title.contains(query, ignoreCase = true) }
         }
 
-        // タグフィルタ (タグなしタスクは常に含める)
         if (tagId != null && taggedIds != null) {
             result = result.filter { it.id in taggedIds || tagMap[it.id].isNullOrEmpty() }
         }
 
-        // ソート
         when (sort) {
             SortOption.DATE_ASC -> result.sortedWith(compareBy({ it.startDate }, { it.startTime ?: "99:99" }))
             SortOption.DATE_DESC -> result.sortedWith(compareByDescending<Task> { it.startDate }.thenByDescending { it.startTime ?: "" })
@@ -145,22 +140,26 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // 関連情報（ステップ名・子タスク数）を集約するための Flow (ステップ8)
+    // ★改善: ロードマップとchild情報をキャッシュとして保持し、タスクリストと結合
+    // DB変更時のみ自動更新される（毎回クエリしない）
+    private val stepMapFlow: StateFlow<Map<Int, String>> = db.roadmapStepDao().getAllStepsFlow()
+        .map { steps -> steps.associate { it.id to it.title } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    private val stepsByTaskFlow: StateFlow<Map<Int, List<RoadmapStep>>> = db.roadmapStepDao().getAllStepsFlow()
+        .map { steps -> steps.groupBy { it.taskId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    private val childCountMapFlow: StateFlow<Map<Int?, Int>> = db.taskDao().getAllChildrenFlow()
+        .map { children -> children.groupBy { it.parentTaskId }.mapValues { it.value.size } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     val uiTasks: StateFlow<List<TaskListItemUiModel>> = combine(
         tasks,
-        baseTaskFlow // トリガー用
-    ) { currentTasks, _ ->
-        val roadmapDao = db.roadmapStepDao()
-        val taskDao = db.taskDao()
-        
-        // パフォーマンスのため、一括取得してメモリ内でマップ化
-        val allSteps = roadmapDao.getAllStepsSync()
-        val stepMap = allSteps.associate { it.id to it.title }
-        val stepsByTask = allSteps.groupBy { it.taskId }
-        
-        val allChildren = taskDao.getAllChildrenSync()
-        val childCountMap = allChildren.groupBy { it.parentTaskId }.mapValues { it.value.size }
-        
+        stepMapFlow,
+        stepsByTaskFlow,
+        childCountMapFlow
+    ) { currentTasks, stepMap, stepsByTask, childCountMap ->
         currentTasks.map { task ->
             val emoji = when {
                 task.roadmapEnabled -> "🛣️"
@@ -169,7 +168,6 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                 else -> "📅"
             }
 
-            // ロードマップ進行中のタイトル生成
             var activeLabel: String? = null
             val displayTitle = if (task.roadmapEnabled && task.activeRoadmapStepId != null) {
                 val stepName = stepMap[task.activeRoadmapStepId] ?: "進行中"
@@ -180,9 +178,9 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             val taskSteps = stepsByTask[task.id] ?: emptyList()
-            val totalSteps = taskSteps.size + 1 // START (+1)
+            val totalSteps = taskSteps.size + 1
             val completedCount = taskSteps.count { it.isCompleted } + (if (task.activeRoadmapStepId != null || task.isCompleted) 1 else 0)
-            
+
             val progress = if (task.roadmapEnabled) {
                 if (totalSteps <= 1) 0 else (completedCount * 100) / totalSteps
             } else {
@@ -203,11 +201,6 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    private fun createUiModel(task: Task): TaskListItemUiModel {
-        // 後方互換のため残すが、uiTasks 内で直接生成するように変更
-        return TaskListItemUiModel(task, task.title, task.startDate, task.progress, "")
-    }
 
     private fun collectInclusiveTagIds(tagId: Int, allTags: List<Tag>): Set<Int> {
         val result = mutableSetOf(tagId)
@@ -230,11 +223,9 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     fun clearFilters() { filterOption.value = FilterOption(); selectedTagId.value = null }
 
     fun softDelete(task: Task) = viewModelScope.launch { repo.softDelete(task.id) }
-    
-    // 完了処理の分岐基盤 (ステップ4)
+
     fun toggleComplete(task: Task) = viewModelScope.launch {
         if (task.roadmapEnabled) {
-            // ロードマップ進行ロジックへ (ステップ7で実装)
             processRoadmapCompletion(task)
         } else {
             repo.setCompleted(task.id, !task.isCompleted)
@@ -244,16 +235,14 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun processRoadmapCompletion(task: Task) {
         val roadmapStepDao = db.roadmapStepDao()
         val steps = roadmapStepDao.getStepsForTaskSync(task.id)
-        
+
         if (steps.isEmpty()) {
-            // ステップがない場合は即座に本体完了
             repo.setCompleted(task.id, true)
             return
         }
 
         val currentStepId = task.activeRoadmapStepId
         if (currentStepId == null) {
-            // 現在地が「本体(START)」の場合 -> 最初のステップをアクティブにする
             val firstStep = steps.firstOrNull()
             if (firstStep != null) {
                 db.taskDao().update(task.copy(
@@ -267,9 +256,8 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                 repo.syncTaskProgress(task.id)
             }
         } else {
-            // 現在地が「ステップ」の場合 -> そのステップを完了し、次へ
             roadmapStepDao.setStepCompleted(currentStepId, true, System.currentTimeMillis())
-            
+
             val currentIndex = steps.indexOfFirst { it.id == currentStepId }
             val nextStep = if (currentIndex != -1 && currentIndex < steps.size - 1) {
                 steps[currentIndex + 1]
@@ -285,11 +273,11 @@ class ScheduleListViewModel(app: Application) : AndroidViewModel(app) {
                 ))
                 repo.syncTaskProgress(task.id)
             } else {
-                // 次のステップがない = 全ロードマップ完了
                 repo.setCompleted(task.id, true)
                 repo.syncTaskProgress(task.id)
             }
         }
     }
+
     fun deleteDraft(draft: com.example.taskschedulerv3.data.model.QuickDraftTask) = viewModelScope.launch { draftRepo.delete(draft) }
 }
